@@ -1,9 +1,9 @@
 {
-  "name": "Império Art Sound — Pedidos",
-  "short_name": "Império Pedidos",
-  "start_url": "./index.html",
+  "name": "Império Art Sound",
+  "short_name": "Império Art",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#0d0d0f",
   "theme_color": "#151515",
-  "description": "Controle local de pedidos, pagamentos, despesas e lucro da Império Art Sound"
+  "icons": []
 }
