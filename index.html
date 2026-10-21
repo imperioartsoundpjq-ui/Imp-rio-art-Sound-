@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#151515">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Império Art Sound">
+<link rel="manifest" href="manifest.json">
+<title>Império Art Sound — Pedidos</title>
+<style>
+:root{--bg:#0d0d0f;--panel:#19191d;--panel2:#222227;--text:#f5f5f5;--muted:#aaaab4;--red:#e32636;--gold:#d7ad55;--line:#33333a;--green:#55c58a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding-bottom:82px}
+header{padding:22px 18px 16px;background:linear-gradient(135deg,#191919,#090909);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.brand{font-weight:900;letter-spacing:.3px;font-size:20px}.brand span{color:var(--red)}.sub{font-size:12px;color:var(--muted);margin-top:4px}
+main{max-width:850px;margin:auto;padding:16px}
+h2{font-size:18px;margin:8px 0 14px}h3{font-size:15px;margin:0 0 10px}
+.nav{position:fixed;bottom:0;left:0;right:0;z-index:8;display:flex;justify-content:space-around;background:#151518;border-top:1px solid var(--line);padding:8px 3px calc(8px + env(safe-area-inset-bottom))}
+.nav button{background:none;border:0;color:var(--muted);font-size:11px;padding:5px 3px;flex:1}.nav button b{display:block;font-size:20px;margin-bottom:2px}.nav button.active{color:var(--gold)}
+button,.button{border:0;border-radius:10px;padding:12px 14px;background:var(--red);color:white;font-weight:700;font-size:14px;cursor:pointer}
+button.secondary{background:var(--panel2);border:1px solid var(--line)}button.gold{background:var(--gold);color:#171717}button.danger{background:#64252b}
+.row{display:flex;gap:9px;align-items:center}.row>*{flex:1}.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:16px}
+.stat,.card,.formbox{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}.stat .label{color:var(--muted);font-size:12px}.stat .value{font-size:21px;font-weight:800;margin-top:6px;overflow-wrap:anywhere}.goldtext{color:var(--gold)}.redtext{color:#ff6d78}.green{color:var(--green)}
+.field{margin-bottom:12px}.field label{display:block;color:#d0d0d7;font-size:12px;margin:0 0 6px}.field input,.field select,.field textarea{width:100%;background:#101013;color:var(--text);border:1px solid #414149;border-radius:9px;padding:12px;font:inherit;min-width:0}.field textarea{min-height:78px;resize:vertical}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.full{grid-column:1/-1}.hidden{display:none!important}
+.card{margin-bottom:10px}.cardtop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.cardtitle{font-weight:800;font-size:16px}.meta{color:var(--muted);font-size:12px;margin-top:5px;line-height:1.5}.money{font-weight:800;color:var(--gold);white-space:nowrap}
+.badge{display:inline-block;padding:5px 8px;border-radius:20px;background:#35353d;color:#e9e9ee;font-size:11px;margin-top:8px}.badge.pronto,.badge.entregue{background:#173d2b;color:#8ce5b1}.badge.producao{background:#483815;color:#f2d184}.badge.pendente{background:#47232a;color:#ff9aa3}
+.actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.actions button{padding:9px 10px;font-size:12px}
+.empty{padding:28px 12px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:14px}
+.toolbar{display:flex;gap:8px;margin-bottom:12px}.toolbar input{flex:1;background:#101013;color:white;border:1px solid var(--line);border-radius:9px;padding:11px;min-width:0}
+.thumb{width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--line);margin:4px 5px 0 0}
+.small{font-size:12px;color:var(--muted);line-height:1.5}.section{margin-bottom:22px}
+hr{border:0;border-top:1px solid var(--line);margin:14px 0}
+@media(min-width:650px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}.stat .value{font-size:23px}}
+</style>
+</head>
+<body>
+<header><div class="brand"><span>IMPÉRIO</span> ART SOUND</div><div class="sub">Controle de pedidos • produção • pagamentos</div></header>
+<main id="app"></main>
+<nav class="nav">
+<button data-tab="inicio" class="active"><b>⌂</b>Início</button>
+<button data-tab="pedidos"><b>▤</b>Pedidos</button>
+<button data-tab="novo"><b>＋</b>Novo pedido</button>
+<button data-tab="despesas"><b>↗</b>Despesas</button>
+<button data-tab="backup"><b>⚙</b>Dados</button>
+</nav>
+<input id="importFile" type="file" accept="application/json" class="hidden">
+<script>
+const DB_NAME='imperio-art-sound-v1', STORE='records';
+let db, tab='inicio', editing=null, records=[];
+const app=document.getElementById('app');
+const brl=n=>Number(n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const dateNow=()=>new Date().toISOString().slice(0,10);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function openDB(){return new Promise((resolve,reject)=>{const r=indexedDB.open(DB_NAME,1);r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'id'});};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+function allRecords(){return new Promise((resolve,reject)=>{const r=db.transaction(STORE).objectStore(STORE).getAll();r.onsuccess=()=>resolve(r.result||[]);r.onerror=()=>reject(r.error);});}
+function putRecord(x){return new Promise((resolve,reject)=>{const r=db.transaction(STORE,'readwrite').objectStore(STORE).put(x);r.onsuccess=resolve;r.onerror=()=>reject(r.error);});}
+function delRecord(id){return new Promise((resolve,reject)=>{const r=db.transaction(STORE,'readwrite').objectStore(STORE).delete(id);r.onsuccess=resolve;r.onerror=()=>reject(r.error);});}
+async function refresh(){records=await allRecords();render();}
+function orders(){return records.filter(x=>x.kind==='order').sort((a,b)=>(b.created||'').localeCompare(a.created||''));}
+function expenses(){return records.filter(x=>x.kind==='expense').sort((a,b)=>(b.date||'').localeCompare(a.date||''));}
+function received(o){return (o.payments||[]).reduce((s,p)=>s+Number(p.amount||0),0);}
+function costs(o){return Number(o.cost||0);}
+function balance(o){return Number(o.price||0)-received(o);}
+function profit(o){return Number(o.price||0)-costs(o);}
+function fmtDate(s){if(!s)return '—';const [y,m,d]=s.split('-');return `${d}/${m}/${y}`;}
+function statusClass(s){return ({'Pronto':'pronto','Entregue':'entregue','Em produção':'producao','Aguardando':'pendente'})[s]||'';}
+function orderCard(o){return `<div class="card"><div class="cardtop"><div><div class="cardtitle">#${esc(o.number||'—')} · ${esc(o.client||'Sem nome')}</div><div class="meta">${esc(o.type||'Caixa personalizada')} • Entrega: ${fmtDate(o.due)}<br>${esc(o.city||'')}</div><span class="badge ${statusClass(o.status)}">${esc(o.status||'Aguardando')}</span></div><div class="money">${brl(o.price)}</div></div><div class="meta">Recebido: ${brl(received(o))} · Falta: <b>${brl(balance(o))}</b></div>${o.photos?.length?`<div>${o.photos.map(p=>`<img class="thumb" src="${p.data}" alt="Anexo">`).join('')}</div>`:''}<div class="actions"><button class="secondary" onclick="viewOrder('${o.id}')">Detalhes</button><button class="secondary" onclick="editOrder('${o.id}')">Editar</button><button class="secondary" onclick="addPayment('${o.id}')">＋ Pagamento</button><button class="secondary" onclick="advanceStatus('${o.id}')">Mudar status</button></div></div>`;}
+function render(){
+document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+if(tab==='inicio')renderHome();else if(tab==='pedidos')renderOrders();else if(tab==='novo')renderOrderForm();else if(tab==='despesas')renderExpenses();else renderBackup();
+}
+function renderHome(){
+const os=orders(), ex=expenses(), revenue=os.reduce((s,o)=>s+Number(o.price||0),0), paid=os.reduce((s,o)=>s+received(o),0), pending=os.reduce((s,o)=>s+balance(o),0), expenseSum=ex.reduce((s,e)=>s+Number(e.amount||0),0), estimated=os.reduce((s,o)=>s+profit(o),0)-expenseSum;
+app.innerHTML=`<h2>Resumo da loja</h2><div class="stats">
+<div class="stat"><div class="label">Pedidos ativos</div><div class="value">${os.filter(o=>o.status!=='Entregue').length}</div></div>
+<div class="stat"><div class="label">Total vendido</div><div class="value">${brl(revenue)}</div></div>
+<div class="stat"><div class="label">Já recebido</div><div class="value green">${brl(paid)}</div></div>
+<div class="stat"><div class="label">A receber</div><div class="value redtext">${brl(pending)}</div></div></div>
+<div class="stats"><div class="stat"><div class="label">Despesas lançadas</div><div class="value">${brl(expenseSum)}</div></div><div class="stat"><div class="label">Lucro estimado*</div><div class="value goldtext">${brl(estimated)}</div></div></div>
+<p class="small">*Estimativa: valor dos pedidos menos custo informado em cada pedido e despesas registradas. Para pedidos sem custo preenchido, o lucro pode ficar superestimado.</p>
+<div class="section"><div class="row"><h2 style="flex:1">Pedidos recentes</h2><button class="secondary" onclick="setTab('pedidos')">Ver todos</button></div>${os.slice(0,4).map(orderCard).join('')||'<div class="empty">Nenhum pedido cadastrado ainda.</div>'}</div>
+<button class="gold" style="width:100%" onclick="setTab('novo')">＋ Cadastrar pedido</button>`;
+}
+function renderOrders(){
+app.innerHTML=`<h2>Pedidos</h2><div class="toolbar"><input id="searchOrders" placeholder="Buscar cliente, cidade ou nº do pedido" oninput="filterOrders()"><select id="filterStatus" onchange="filterOrders()" style="max-width:145px;background:#101013;color:white;border:1px solid #333;border-radius:9px;padding:8px"><option value="">Todos</option><option>Aguardando</option><option>Em produção</option><option>Pronto</option><option>Entregue</option></select></div><div id="orderList">${orders().map(orderCard).join('')||'<div class="empty">Seus pedidos aparecerão aqui.</div>'}</div>`;
+}
+function filterOrders(){const q=document.getElementById('searchOrders').value.toLowerCase(),s=document.getElementById('filterStatus').value;const list=orders().filter(o=>(!s||o.status===s)&&[o.client,o.city,o.number,o.type].some(v=>String(v||'').toLowerCase().includes(q)));document.getElementById('orderList').innerHTML=list.map(orderCard).join('')||'<div class="empty">Nenhum pedido encontrado.</div>';}
+function renderOrderForm(o={}){
+editing=o.id||null;
+const payments=o.payments||[],photos=o.photos||[];
+app.innerHTML=`<h2>${editing?'Editar pedido':'Novo pedido'}</h2><form id="orderForm"><div class="formbox">
+<div class="grid2">
+<div class="field"><label>Cliente *</label><input name="client" required value="${esc(o.client)}" placeholder="Nome do cliente"></div>
+<div class="field"><label>Telefone</label><input name="phone" inputmode="tel" value="${esc(o.phone)}" placeholder="WhatsApp"></div>
+<div class="field"><label>Cidade</label><input name="city" value="${esc(o.city)}" placeholder="Cidade"></div>
+<div class="field"><label>Data do pedido</label><input name="date" type="date" value="${esc(o.date||dateNow())}"></div>
+<div class="field"><label>Entrega prevista</label><input name="due" type="date" value="${esc(o.due)}"></div>
+<div class="field"><label>Tipo de projeto</label><select name="type">${['Caixa de grave','Caixa de médio','Rack','Caixa grave + médio','Personalizado','Outro'].map(t=>`<option ${o.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
+<div class="field"><label>Valor combinado (R$)</label><input name="price" type="number" min="0" step=".01" value="${esc(o.price??'')}" placeholder="0,00"></div>
+<div class="field"><label>Custo estimado (R$)</label><input name="cost" type="number" min="0" step=".01" value="${esc(o.cost??'')}" placeholder="MDF, peças, material"></div>
+<div class="field"><label>Status</label><select name="status">${['Aguardando','Em produção','Pronto','Entregue'].map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+<div class="field"><label>Medidas</label><input name="measurements" value="${esc(o.measurements)}" placeholder="L × A × P, em cm"></div>
+<div class="field full"><label>Descrição / especificações</label><textarea name="description" placeholder="Alto-falantes, dutos, acabamento, observações...">${esc(o.description)}</textarea></div>
+<div class="field full"><label>Fotos e desenhos (máx. 8 imagens, até 4 MB cada)</label><input id="photos" type="file" accept="image/*" multiple><div class="small">Anexos ficam salvos neste aparelho. Mantenha cópias das fotos originais.</div><div id="photoPreview">${photos.map((p,i)=>`<span><img class="thumb" src="${p.data}"><button type="button" class="secondary" onclick="removePhoto(${i})">Remover</button></span>`).join('')}</div></div>
+</div><hr><h3>Pagamentos já recebidos</h3><div id="paymentsList">${payments.map((p,i)=>`<div class="meta">${fmtDate(p.date)} · ${brl(p.amount)} · ${esc(p.method||'Não informado')} <button type="button" class="secondary" onclick="removePaymentForm(${i})">Remover</button></div>`).join('')||'<div class="small">Nenhum pagamento lançado.</div>'}</div>
+<div class="row"><div class="field"><label>Valor recebido (R$)</label><input id="payAmount" type="number" min="0.01" step=".01" placeholder="0,00"></div><div class="field"><label>Forma</label><select id="payMethod"><option>Pix</option><option>Dinheiro</option><option>Cartão</option><option>Transferência</option><option>Outro</option></select></div><div style="flex:0 0 auto;margin-top:10px"><button type="button" class="secondary" onclick="addPaymentForm()">Adicionar</button></div></div>
+<div class="small" id="calcInfo"></div><div class="actions"><button type="submit">${editing?'Salvar alterações':'Salvar pedido'}</button><button type="button" class="secondary" onclick="setTab('pedidos')">Cancelar</button></div></div></form>`;
+window._formPhotos=photos.slice();window._formPayments=payments.slice();
+document.getElementById('photos').addEventListener('change',async e=>{let files=[...e.target.files];if(files.length+window._formPhotos.length>8){alert('Limite de 8 imagens por pedido.');e.target.value='';return;}for(const f of files){if(f.size>4*1024*1024){alert(`${f.name}: imagem maior que 4 MB.`);continue;}const data=await resizeImage(f);window._formPhotos.push({name:f.name,data});}renderPhotoPreview();e.target.value='';});
+document.getElementById('orderForm').addEventListener('input',updateCalc);
+document.getElementById('orderForm').addEventListener('submit',saveOrder);
+updateCalc();
+}
+async function resizeImage(file){return new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>{const img=new Image();img.onload=()=>{const max=1400,scale=Math.min(1,max/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*scale);c.height=Math.round(img.height*scale);c.getContext('2d').drawImage(img,0,0,c.width,c.height);resolve({name:file.name,data:c.toDataURL('image/jpeg',.78)});};img.onerror=()=>resolve({name:file.name,data:reader.result});img.src=reader.result;};reader.readAsDataURL(file);});}
+function renderPhotoPreview(){document.getElementById('photoPreview').innerHTML=window._formPhotos.map((p,i)=>`<span><img class="thumb" src="${p.data}"><button type="button" class="secondary" onclick="removePhoto(${i})">Remover</button></span>`).join('');}
+function removePhoto(i){window._formPhotos.splice(i,1);renderPhotoPreview();}
+function addPaymentForm(){const amount=Number(document.getElementById('payAmount').value);if(!(amount>0)){alert('Informe um valor válido.');return;}window._formPayments.push({amount,date:dateNow(),method:document.getElementById('payMethod').value});document.getElementById('payAmount').value='';renderPaymentsForm();updateCalc();}
+function removePaymentForm(i){window._formPayments.splice(i,1);renderPaymentsForm();updateCalc();}
+function renderPaymentsForm(){document.getElementById('paymentsList').innerHTML=window._formPayments.map((p,i)=>`<div class="meta">${fmtDate(p.date)} · ${brl(p.amount)} · ${esc(p.method||'Não informado')} <button type="button" class="secondary" onclick="removePaymentForm(${i})">Remover</button></div>`).join('')||'<div class="small">Nenhum pagamento lançado.</div>';}
+function updateCalc(){const f=document.getElementById('orderForm');if(!f)return;const price=Number(f.elements.price.value||0),cost=Number(f.elements.cost.value||0),paid=window._formPayments.reduce((s,p)=>s+Number(p.amount||0),0);document.getElementById('calcInfo').textContent=`Recebido: ${brl(paid)} · Saldo: ${brl(price-paid)} · Lucro estimado neste pedido: ${brl(price-cost)}`;}
+async function saveOrder(e){e.preventDefault();const f=e.target,old=editing?records.find(x=>x.id===editing):null;const data=Object.fromEntries(new FormData(f).entries());const number=old?.number||String(Math.max(0,...orders().map(o=>Number(o.number)||0))+1).padStart(4,'0');const o={...(old||{}),...data,id:old?.id||crypto.randomUUID(),kind:'order',number,created:old?.created||new Date().toISOString(),price:Number(data.price||0),cost:Number(data.cost||0),payments:window._formPayments,photos:window._formPhotos};await putRecord(o);editing=null;await refresh();tab='pedidos';render();alert('Pedido salvo neste aparelho. Faça backup regularmente em Dados.');}
+function viewOrder(id){const o=orders().find(x=>x.id===id);if(!o)return;alert(`PEDIDO #${o.number}\nCliente: ${o.client}\nTelefone: ${o.phone||'—'}\nCidade: ${o.city||'—'}\nProjeto: ${o.type}\nMedidas: ${o.measurements||'—'}\nDescrição: ${o.description||'—'}\nEntrega: ${fmtDate(o.due)}\nStatus: ${o.status}\nValor: ${brl(o.price)}\nRecebido: ${brl(received(o))}\nSaldo: ${brl(balance(o))}\nCusto: ${brl(o.cost)}\nLucro estimado: ${brl(profit(o))}`);}
+function editOrder(id){const o=orders().find(x=>x.id===id);if(o){tab='novo';renderOrderForm(o);document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='novo'));}}
+async function addPayment(id){const o=orders().find(x=>x.id===id);if(!o)return;const raw=prompt(`Saldo atual: ${brl(balance(o))}\nDigite o valor recebido (R$):`);if(raw===null)return;const amount=Number(raw.replace(',','.'));if(!(amount>0)){alert('Valor inválido.');return;}const method=prompt('Forma de pagamento (Pix, dinheiro, cartão etc.):','Pix')||'Não informado';o.payments=o.payments||[];o.payments.push({amount,date:dateNow(),method});await putRecord(o);await refresh();}
+async function advanceStatus(id){const o=orders().find(x=>x.id===id);if(!o)return;const list=['Aguardando','Em produção','Pronto','Entregue'];const next=list[(list.indexOf(o.status)+1)%list.length];if(confirm(`Alterar status de "${o.status}" para "${next}"?`)){o.status=next;await putRecord(o);await refresh();}}
+function renderExpenses(){app.innerHTML=`<h2>Despesas da loja</h2><form id="expenseForm" class="formbox"><div class="grid2"><div class="field"><label>Descrição *</label><input name="description" required placeholder="Ex.: MDF, cola, energia"></div><div class="field"><label>Valor (R$) *</label><input name="amount" required type="number" min=".01" step=".01" placeholder="0,00"></div><div class="field"><label>Data</label><input name="date" type="date" value="${dateNow()}"></div><div class="field"><label>Categoria</label><select name="category"><option>Material</option><option>Ferramentas</option><option>Energia/água</option><option>Frete</option><option>Manutenção</option><option>Outros</option></select></div></div><button type="submit">Registrar despesa</button></form><hr><h3>Despesas registradas · Total ${brl(expenses().reduce((s,e)=>s+Number(e.amount||0),0))}</h3>${expenses().map(e=>`<div class="card"><div class="cardtop"><div><b>${esc(e.description)}</b><div class="meta">${fmtDate(e.date)} · ${esc(e.category)}</div></div><div class="money">${brl(e.amount)}</div></div><div class="actions"><button class="danger" onclick="deleteExpense('${e.id}')">Excluir</button></div></div>`).join('')||'<div class="empty">Nenhuma despesa registrada.</div>'}<p class="small">Cadastre aqui as despesas gerais. Custos específicos de cada pedido ficam no campo “Custo estimado” do pedido.</p>`;
+document.getElementById('expenseForm').addEventListener('submit',async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());await putRecord({...d,id:crypto.randomUUID(),kind:'expense',amount:Number(d.amount),created:new Date().toISOString()});await refresh();});
+}
+async function deleteExpense(id){if(confirm('Excluir esta despesa?')){await delRecord(id);await refresh();}}
+function renderBackup(){app.innerHTML=`<h2>Dados e segurança</h2><div class="card"><h3>Backup completo</h3><p class="small">Exporta pedidos, pagamentos, despesas e anexos em um arquivo JSON. Guarde esse arquivo em um local seguro. Os dados ficam somente neste navegador/aparelho e não sincronizam automaticamente.</p><button onclick="exportBackup()">Exportar backup</button></div><div class="card"><h3>Restaurar backup</h3><p class="small">Importar um backup substitui os dados atuais. Exporte o estado atual antes de restaurar.</p><button class="secondary" onclick="document.getElementById('importFile').click()">Escolher arquivo de backup</button></div><div class="card"><h3>Resumo dos dados</h3><div class="meta">Pedidos: ${orders().length}<br>Despesas: ${expenses().length}<br>Anexos: ${orders().reduce((s,o)=>s+(o.photos||[]).length,0)} imagens</div><hr><button class="danger" onclick="clearAll()">Apagar todos os dados</button></div><p class="small">Privacidade: não há conta nem servidor. Qualquer pessoa com acesso desbloqueado ao aparelho e a este navegador poderá abrir o app. Use bloqueio de tela no iPhone.</p>`;
+}
+function exportBackup(){const blob=new Blob([JSON.stringify({app:'Imperio Art Sound',version:1,exportedAt:new Date().toISOString(),records},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`imperio-art-sound-backup-${dateNow()}.json`;a.click();URL.revokeObjectURL(a.href);}
+document.getElementById('importFile').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const parsed=JSON.parse(await file.text());if(!Array.isArray(parsed.records))throw Error('Arquivo inválido');if(!confirm('Isso substituirá todos os dados atuais. Continuar?'))return;const tx=db.transaction(STORE,'readwrite'),store=tx.objectStore(STORE);store.clear();parsed.records.forEach(x=>store.put(x));tx.oncomplete=async()=>{await refresh();alert('Backup restaurado.');};}catch(err){alert('Não foi possível importar: '+err.message)}finally{e.target.value='';}});
+async function clearAll(){if(!confirm('ATENÇÃO: apagar permanentemente todos os pedidos, pagamentos, despesas e anexos deste navegador?'))return;if(!confirm('Confirme novamente: você exportou um backup?'))return;const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).clear();tx.oncomplete=async()=>{await refresh();};}
+function setTab(t){tab=t;editing=null;render();}
+document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
+(async()=>{try{db=await openDB();await refresh();if('serviceWorker'in navigator && location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});}catch(e){app.innerHTML='<div class="empty">Não foi possível abrir o banco local do navegador. Abra este app em Safari ou Chrome atualizado.</div>';}})();
+</script>
+</body></html>
