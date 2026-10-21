@@ -31,6 +31,8 @@ button.secondary{background:var(--panel2);border:1px solid var(--line)}button.go
 .toolbar{display:flex;gap:8px;margin-bottom:12px}.toolbar input{flex:1;background:#101013;color:white;border:1px solid var(--line);border-radius:9px;padding:11px;min-width:0}
 .thumb{width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--line);margin:4px 5px 0 0}
 .small{font-size:12px;color:var(--muted);line-height:1.5}.section{margin-bottom:22px}
+.cost-line{display:grid;grid-template-columns:minmax(0,1fr) 90px 40px;gap:7px;align-items:center;margin:8px 0}.cost-line input{min-width:0}.budget-result{border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0;background:var(--panel)}.budget-result .big{font-size:26px;font-weight:800;color:var(--gold)}
+.chart-row{display:grid;grid-template-columns:90px 1fr 78px;gap:8px;align-items:center;margin:10px 0;font-size:12px}.chart-track{height:16px;background:#303037;border-radius:5px;overflow:hidden}.chart-fill{height:100%;border-radius:5px;min-width:0}.chart-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:8px 0 14px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}.chart-month{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;align-items:end;height:170px;padding:10px 0}.month-col{height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:5px;min-width:0}.month-bars{height:135px;width:100%;display:flex;align-items:flex-end;justify-content:center;gap:3px}.month-bar{width:38%;max-width:20px;border-radius:4px 4px 0 0;min-height:2px}.month-label{font-size:10px;color:var(--muted)}
 hr{border:0;border-top:1px solid var(--line);margin:14px 0}
 @media(min-width:650px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}.stat .value{font-size:23px}}
 </style>
@@ -43,6 +45,8 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
 <button data-tab="pedidos"><b>▤</b>Pedidos</button>
 <button data-tab="novo"><b>＋</b>Novo pedido</button>
 <button data-tab="despesas"><b>↗</b>Despesas</button>
+<button data-tab="orcamento"><b>R$</b>Orçar</button>
+<button data-tab="graficos"><b>▥</b>Gráficos</button>
 <button data-tab="corte"><b>▦</b>Corte MDF</button>
 <button data-tab="backup"><b>⚙</b>Dados</button>
 </nav>
@@ -70,7 +74,7 @@ function statusClass(s){return ({'Pronto':'pronto','Entregue':'entregue','Em pro
 function orderCard(o){return `<div class="card"><div class="cardtop"><div><div class="cardtitle">#${esc(o.number||'—')} · ${esc(o.client||'Sem nome')}</div><div class="meta">${esc(o.type||'Caixa personalizada')} • Entrega: ${fmtDate(o.due)}<br>${esc(o.city||'')}</div><span class="badge ${statusClass(o.status)}">${esc(o.status||'Aguardando')}</span></div><div class="money">${brl(o.price)}</div></div><div class="meta">Recebido: ${brl(received(o))} · Falta: <b>${brl(balance(o))}</b></div>${o.photos?.length?`<div>${o.photos.map(p=>`<img class="thumb" src="${p.data}" alt="Anexo">`).join('')}</div>`:''}<div class="actions"><button class="secondary" onclick="viewOrder('${o.id}')">Detalhes</button><button class="secondary" onclick="editOrder('${o.id}')">Editar</button><button class="secondary" onclick="addPayment('${o.id}')">＋ Pagamento</button><button class="secondary" onclick="advanceStatus('${o.id}')">Mudar status</button></div></div>`;}
 function render(){
 document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
-if(tab==='inicio')renderHome();else if(tab==='pedidos')renderOrders();else if(tab==='novo')renderOrderForm();else if(tab==='despesas')renderExpenses();else if(tab==='corte')renderCutPlanner();else renderBackup();
+if(tab==='inicio')renderHome();else if(tab==='pedidos')renderOrders();else if(tab==='novo')renderOrderForm();else if(tab==='despesas')renderExpenses();else if(tab==='orcamento')renderBudget();else if(tab==='graficos')renderCharts();else if(tab==='corte')renderCutPlanner();else renderBackup();
 }
 function renderHome(){
 const os=orders(), ex=expenses(), revenue=os.reduce((s,o)=>s+Number(o.price||0),0), paid=os.reduce((s,o)=>s+received(o),0), pending=os.reduce((s,o)=>s+balance(o),0), expenseSum=ex.reduce((s,e)=>s+Number(e.amount||0),0), estimated=os.reduce((s,o)=>s+profit(o),0)-expenseSum;
@@ -130,6 +134,109 @@ function renderExpenses(){app.innerHTML=`<h2>Despesas da loja</h2><form id="expe
 document.getElementById('expenseForm').addEventListener('submit',async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());await putRecord({...d,id:crypto.randomUUID(),kind:'expense',amount:Number(d.amount),created:new Date().toISOString()});await refresh();});
 }
 async function deleteExpense(id){if(confirm('Excluir esta despesa?')){await delRecord(id);await refresh();}}
+
+
+
+let budgetMaterials=[];
+function renderBudget(){
+ app.innerHTML=`<h2>Orçamento e preço de venda</h2>
+ <p class="small">Calcule o custo de material, mão de obra, despesas indiretas e margem desejada antes de passar o preço ao cliente.</p>
+ <div class="formbox section"><h3>1. Dados do orçamento</h3><div class="grid2">
+ <div class="field"><label>Nome do orçamento / produto</label><input id="bName" placeholder="Ex.: caixa de grave"></div>
+ <div class="field"><label>Cliente (opcional)</label><input id="bClient" placeholder="Nome do cliente"></div>
+ <div class="field"><label>Horas de trabalho</label><input id="bHours" type="number" min="0" step=".5" value="0"></div>
+ <div class="field"><label>Valor da sua hora (R$)</label><input id="bHourly" type="number" min="0" step=".01" value="0"></div>
+ <div class="field"><label>Outros custos (R$)</label><input id="bOther" type="number" min="0" step=".01" value="0"></div>
+ <div class="field"><label>Margem de lucro desejada (%)</label><input id="bMargin" type="number" min="0" max="95" step="1" value="30"></div>
+ <div class="field"><label>Taxas/impostos sobre venda (%)</label><input id="bFees" type="number" min="0" max="99" step=".1" value="0"></div>
+ <div class="field"><label>Desconto ao cliente (%)</label><input id="bDiscount" type="number" min="0" max="90" step=".1" value="0"></div>
+ </div></div>
+ <div class="formbox section"><h3>2. Materiais e quantidades</h3>
+ <div class="cost-line"><div class="field"><label>Material / peça</label><input id="bmName" placeholder="MDF 18 mm, cola, parafuso..."></div><div class="field"><label>Custo total (R$)</label><input id="bmCost" type="number" min="0" step=".01" placeholder="0,00"></div><div class="field"><label>Qtd.</label><input id="bmQty" type="number" min="1" step="1" value="1"></div></div>
+ <button onclick="addBudgetMaterial()">＋ Adicionar material</button><div id="budgetMaterialsList" style="margin-top:12px"></div>
+ </div>
+ <div class="formbox section"><h3>3. Calcular preço</h3>
+ <button class="gold" style="width:100%" onclick="calculateBudget()">Calcular orçamento</button>
+ <div id="budgetOutput"><div class="empty">Adicione os materiais e calcule.</div></div>
+ </div>
+ <div class="formbox section"><h3>4. Salvar como pedido</h3>
+ <p class="small">Depois de calcular, você pode criar um pedido com o preço sugerido. Confira os dados antes de salvar.</p>
+ <button class="secondary" style="width:100%" onclick="saveBudgetAsOrder()">Salvar orçamento como pedido</button>
+ <p class="small">O custo de material será somado ao custo do pedido quando o campo correspondente estiver disponível. Guarde a lista detalhada do orçamento no campo de observações, se necessário.</p>
+ </div>`;
+ renderBudgetMaterials();
+}
+function addBudgetMaterial(){
+ const name=document.getElementById('bmName').value.trim()||`Material ${budgetMaterials.length+1}`;
+ const cost=Number(document.getElementById('bmCost').value),qty=Math.floor(Number(document.getElementById('bmQty').value||1));
+ if(!(cost>=0&&qty>0)){alert('Informe custo válido e quantidade maior que zero.');return;}
+ budgetMaterials.push({name,cost,qty,total:cost*qty});
+ document.getElementById('bmName').value='';document.getElementById('bmCost').value='';document.getElementById('bmQty').value='1';
+ renderBudgetMaterials();
+}
+function removeBudgetMaterial(i){budgetMaterials.splice(i,1);renderBudgetMaterials();}
+function renderBudgetMaterials(){
+ const el=document.getElementById('budgetMaterialsList');if(!el)return;
+ el.innerHTML=budgetMaterials.map((m,i)=>`<div class="meta" style="padding:8px 0;border-bottom:1px solid var(--line)"><b>${esc(m.name)}</b> · ${m.qty} × ${brl(m.cost)} = <b>${brl(m.total)}</b> <button class="secondary" onclick="removeBudgetMaterial(${i})">Remover</button></div>`).join('')||'<div class="empty">Nenhum material adicionado.</div>';
+}
+let lastBudget=null;
+function calculateBudget(){
+ const material=budgetMaterials.reduce((s,m)=>s+m.total,0),hours=Math.max(0,Number(document.getElementById('bHours').value||0)),hourly=Math.max(0,Number(document.getElementById('bHourly').value||0)),other=Math.max(0,Number(document.getElementById('bOther').value||0));
+ const margin=Math.min(95,Math.max(0,Number(document.getElementById('bMargin').value||0)))/100,fees=Math.min(99,Math.max(0,Number(document.getElementById('bFees').value||0)))/100,discount=Math.min(90,Math.max(0,Number(document.getElementById('bDiscount').value||0)))/100;
+ const labor=hours*hourly,cost=material+labor+other,denom=1-margin-fees;
+ if(denom<=0||discount>=1){alert('Ajuste a margem e as taxas: a soma não pode chegar a 100%.');return;}
+ const priceBeforeDiscount=cost/denom,price=priceBeforeDiscount/(1-discount),actualSale=price*(1-discount),feesValue=actualSale*fees,profit=actualSale-cost-feesValue;
+ lastBudget={name:document.getElementById('bName').value.trim()||'Orçamento',client:document.getElementById('bClient').value.trim(),material,labor,other,cost,margin:margin*100,fees:fees*100,discount:discount*100,price,actualSale,feesValue,profit,materials:budgetMaterials.map(x=>({...x}))};
+ document.getElementById('budgetOutput').innerHTML=`<div class="budget-result"><div class="label">Preço sugerido para informar ao cliente</div><div class="big">${brl(price)}</div><div class="meta">Preço com desconto aplicado: ${brl(actualSale)}</div></div>
+ <div class="stats"><div class="stat"><div class="label">Materiais</div><div class="value">${brl(material)}</div></div><div class="stat"><div class="label">Mão de obra</div><div class="value">${brl(labor)}</div></div><div class="stat"><div class="label">Custo total</div><div class="value redtext">${brl(cost)}</div></div><div class="stat"><div class="label">Lucro estimado</div><div class="value goldtext">${brl(profit)}</div></div></div>
+ <div class="card"><div class="meta">Outros custos: ${brl(other)} · Taxas estimadas: ${brl(feesValue)} · Margem desejada: ${margin*100}% · Desconto: ${discount*100}%</div></div>
+ <p class="small">Fórmula: preço-base = custo total ÷ (1 − margem − taxas). O desconto é aplicado sobre o preço informado. É uma estimativa: inclua energia, desgaste de ferramentas, perdas de MDF e impostos reais em “Outros custos”/taxas.</p>`;
+}
+function saveBudgetAsOrder(){
+ if(!lastBudget){calculateBudget();if(!lastBudget)return;}
+ const b=lastBudget;
+ const data={number:Date.now().toString().slice(-6),client:b.client||'A definir',product:b.name,price:b.price,cost:b.cost,paid:0,status:'Orçamento',created:new Date().toISOString().slice(0,10),notes:`Orçamento: materiais ${brl(b.material)}, mão de obra ${brl(b.labor)}, outros custos ${brl(b.other)}, lucro estimado ${brl(b.profit)}. Materiais: ${b.materials.map(m=>`${m.name} (${m.qty} × ${brl(m.cost)})`).join('; ')}`};
+ try {
+  let arr=JSON.parse(localStorage.getItem('imperio_orders')||'[]');
+  if(!Array.isArray(arr))arr=[];
+  arr.unshift(data);localStorage.setItem('imperio_orders',JSON.stringify(arr));
+  alert('Orçamento salvo como pedido. Confira na aba Pedidos.');
+  setTab('pedidos');
+ }catch(e){alert('Não foi possível salvar automaticamente. Copie os valores do orçamento antes de sair.');}
+}
+
+function renderCharts(){
+ const os=orders(), ex=expenses();
+ const expenseTotal=ex.reduce((s,e)=>s+Number(e.amount||0),0);
+ const revenue=os.reduce((s,o)=>s+Number(o.price||0),0);
+ const receivedTotal=os.reduce((s,o)=>s+received(o),0);
+ const costTotal=os.reduce((s,o)=>s+costs(o),0);
+ const estimated=revenue-costTotal-expenseTotal;
+ const catMap={}; ex.forEach(e=>{const c=e.category||'Outros';catMap[c]=(catMap[c]||0)+Number(e.amount||0);});
+ const catEntries=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
+ const maxCat=Math.max(1,...catEntries.map(x=>x[1]));
+ const monthNames=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+ const months=[];
+ const now=new Date();
+ for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;months.push({key,label:monthNames[d.getMonth()],sales:0,expenses:0});}
+ const monthMap=Object.fromEntries(months.map(m=>[m.key,m]));
+ os.forEach(o=>{const key=String(o.created||o.due||'').slice(0,7);if(monthMap[key])monthMap[key].sales+=Number(o.price||0);});
+ ex.forEach(e=>{const key=String(e.date||e.created||'').slice(0,7);if(monthMap[key])monthMap[key].expenses+=Number(e.amount||0);});
+ const maxMonth=Math.max(1,...months.flatMap(m=>[m.sales,m.expenses]));
+ const chartMonths=months.map(m=>`<div class="month-col"><div class="month-bars"><div class="month-bar" title="Vendas ${brl(m.sales)}" style="height:${Math.max(m.sales?3:0,m.sales/maxMonth*130)}px;background:#d7ad55"></div><div class="month-bar" title="Despesas ${brl(m.expenses)}" style="height:${Math.max(m.expenses?3:0,m.expenses/maxMonth*130)}px;background:#e32636"></div></div><div class="month-label">${m.label}</div></div>`).join('');
+ const categoryBars=catEntries.map(([name,value])=>`<div class="chart-row"><div>${esc(name)}</div><div class="chart-track"><div class="chart-fill" style="width:${value/maxCat*100}%;background:${name==='Material'?'#d7ad55':'#e32636'}"></div></div><div style="text-align:right">${brl(value)}</div></div>`).join('')||'<div class="empty">Registre despesas para visualizar os gastos por categoria.</div>';
+ const orderRows=os.slice(0,12).map(o=>{const price=Number(o.price||0),cost=costs(o),margin=price-cost;const pct=price?Math.max(0,Math.min(100,cost/price*100)):0;return `<div class="card"><div class="cardtop"><div><b>#${esc(o.number)} · ${esc(o.client||'Cliente')}</b><div class="meta">Orçamento: ${brl(price)} · Custo informado: ${brl(cost)}</div></div><div class="money">${brl(margin)}</div></div><div class="chart-track" style="margin-top:10px"><div class="chart-fill" title="Custo" style="width:${pct}%;background:#e32636"></div></div><div class="meta">Vermelho = custo informado; restante = diferença antes das despesas gerais.</div></div>`;}).join('')||'<div class="empty">Cadastre pedidos para comparar orçamento e custo.</div>';
+ app.innerHTML=`<h2>Gráficos e análise financeira</h2>
+ <div class="stats">
+ <div class="stat"><div class="label">Orçamentos / vendas</div><div class="value">${brl(revenue)}</div></div>
+ <div class="stat"><div class="label">Custos informados nos pedidos</div><div class="value redtext">${brl(costTotal)}</div></div>
+ <div class="stat"><div class="label">Despesas gerais</div><div class="value">${brl(expenseTotal)}</div></div>
+ <div class="stat"><div class="label">Resultado estimado</div><div class="value goldtext">${brl(estimated)}</div></div></div>
+ <div class="card section"><h3>Vendas x despesas — últimos 6 meses</h3><div class="chart-legend"><span><i class="dot" style="background:#d7ad55"></i>Orçamentos de pedidos</span><span><i class="dot" style="background:#e32636"></i>Despesas lançadas</span></div><div class="chart-month">${chartMonths}</div><p class="small">As vendas são agrupadas pela data de criação do pedido; as despesas, pela data registrada. Valores sem data podem não entrar no gráfico.</p></div>
+ <div class="card section"><h3>Gastos por categoria</h3><p class="small">Para analisar materiais, registre compras em Despesas e selecione a categoria “Material”.</p>${categoryBars}</div>
+ <div class="section"><h3>Orçamento x custo por pedido</h3><p class="small">Diferença estimada = valor do pedido menos custo informado. Não inclui rateio de despesas gerais nesta comparação.</p>${orderRows}</div>
+ <button class="secondary" style="width:100%" onclick="setTab('despesas')">＋ Registrar despesa / material</button>`;
+}
 
 let cutParts=[];
 function renderCutPlanner(){
