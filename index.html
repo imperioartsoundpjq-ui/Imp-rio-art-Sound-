@@ -38,7 +38,7 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
 </style>
 </head>
 <body>
-<header><div class="brand">🔊 <span>IMPÉRIO</span> ART SOUND</div><div class="sub">Controle de pedidos • produção • pagamentos</div></header>
+<header><div class="brand">🔊 <span>IMPÉRIO</span> ART SOUND</div><div class="sub">Pedidos • produção • financeiro detalhado</div></header>
 <main id="app"></main>
 <nav class="nav">
 <button data-tab="inicio" class="active"><b>⌂</b>Início</button>
@@ -56,7 +56,7 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
 <script>
 let supabaseClient=null, currentUser=null, cloudChannel=null, syncBusy=false, syncTimer=null;
 const DB_NAME='imperio-art-sound-v1', STORE='records';
-let db, tab='inicio', editing=null, records=[], expenseScope='loja';
+let db, tab='inicio', editing=null, records=[], expenseScope='loja', financePeriod='mes';
 const app=document.getElementById('app');
 const brl=n=>Number(n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const dateNow=()=>new Date().toISOString().slice(0,10);
@@ -155,11 +155,56 @@ async function deleteWork(id){if(!confirm('Excluir este trabalho?'))return;await
 async function savePreset(){const name=document.getElementById('presetName').value.trim(),price=Number(document.getElementById('presetPrice').value);if(!name||!document.getElementById('presetPrice').value){alert('Informe o nome e o preço.');return;}await putRecord({id:crypto.randomUUID(),kind:'boxPreset',name,price,created:new Date().toISOString()});await refresh();setTab('orcamento');}
 function applyPreset(id){const p=presets().find(x=>x.id===id);if(!p)return;document.getElementById('bName').value=p.name;document.getElementById('bName').scrollIntoView({behavior:'smooth',block:'center'});alert('Preço cadastrado para referência: '+brl(p.price)+'. Confira os custos e calcule o orçamento antes de informar ao cliente.');}
 async function deletePreset(id){if(!confirm('Excluir este preço predefinido?'))return;await delRecord(id);await refresh();setTab('orcamento');}
-function renderExpenses(){
-const list=expenseScope==='loja'?expenses():personalExpenses(), label=expenseScope==='loja'?'Despesas da loja':'Despesas pessoais';
-app.innerHTML=`<h2>Financeiro separado</h2><div class="row" style="margin-bottom:12px"><button class="${expenseScope==='loja'?'gold':'secondary'}" onclick="expenseScope='loja';renderExpenses()">🏪 Loja</button><button class="${expenseScope==='pessoal'?'gold':'secondary'}" onclick="expenseScope='pessoal';renderExpenses()">👤 Pessoal</button></div><div class="formbox"><h3>${label}</h3><p class="small">Os lançamentos pessoais ficam separados dos custos da loja e não entram no cálculo do lucro do negócio.</p><form id="expenseForm"><div class="grid2"><div class="field"><label>Descrição *</label><input name="description" required placeholder="Ex.: MDF, mercado, conta de luz"></div><div class="field"><label>Valor (R$) *</label><input name="amount" required type="number" min=".01" step=".01" placeholder="0,00"></div><div class="field"><label>Data</label><input name="date" type="date" value="${dateNow()}"></div><div class="field"><label>Categoria</label><select name="category">${(expenseScope==='loja'?['Material','Ferramentas','Energia/água','Frete','Manutenção','Outros']:['Alimentação','Moradia','Transporte','Saúde','Família','Contas','Outros']).map(c=>`<option>${c}</option>`).join('')}</select></div></div><button type="submit">Registrar ${expenseScope==='loja'?'despesa da loja':'despesa pessoal'}</button></form></div><hr><h3>Registros · Total ${brl(list.reduce((sum,e)=>sum+Number(e.amount||0),0))}</h3>${list.map(e=>`<div class="card"><div class="cardtop"><div><b>${esc(e.description)}</b><div class="meta">${fmtDate(e.date)} · ${esc(e.category)}</div></div><div class="money">${brl(e.amount)}</div></div><div class="actions"><button class="danger" onclick="deleteExpense('${e.id}')">Excluir</button></div></div>`).join('')||'<div class="empty">Nenhuma despesa registrada nesta área.</div>'}`;
-document.getElementById('expenseForm').addEventListener('submit',async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());await putRecord({...d,id:crypto.randomUUID(),kind:'expense',scope:expenseScope,amount:Number(d.amount),created:new Date().toISOString()});await refresh();});
+function financeInPeriod(date, period=financePeriod){
+ const d=String(date||'').slice(0,10); if(!d)return period==='tudo';
+ const now=new Date(); const today=dateNow();
+ if(period==='tudo')return true;
+ if(period==='hoje')return d===today;
+ if(period==='semana'){const n=new Date(now);n.setHours(0,0,0,0);n.setDate(n.getDate()-((n.getDay()+6)%7));return d>=n.toISOString().slice(0,10)&&d<=today;}
+ if(period==='ano')return d.slice(0,4)===today.slice(0,4);
+ return d.slice(0,7)===today.slice(0,7);
 }
+function financeMovements(scope){return records.filter(x=>['expense','income','transfer'].includes(x.kind)&&(x.scope||'loja')===scope&&financeInPeriod(x.date||x.created));}
+function financeCategoryOptions(scope,kind){
+ if(kind==='transfer')return ['Retirada do dono','Transferência para uso pessoal','Outra transferência'];
+ if(kind==='income')return scope==='loja'?['Outras receitas','Serviço','Venda de material','Reembolso','Outros']:['Salário/renda','Benefício','Reembolso','Outras entradas'];
+ return scope==='loja'?['MDF e madeira','Alto-falantes e componentes','Cola, tinta e acabamento','Ferramentas','Energia/água','Aluguel','Internet/telefone','Frete e entrega','Manutenção','Impostos e taxas','Embalagem','Outros custos']:['Alimentação','Moradia','Água/luz/internet','Transporte/combustível','Saúde/farmácia','Filhos/família','Dívidas/parcelas','Lazer','Compras pessoais','Outros gastos'];
+}
+function renderExpenses(){
+ const scope=expenseScope, label=scope==='loja'?'Financeiro da loja':'Financeiro pessoal';
+ const all=financeMovements(scope).sort((a,b)=>String(b.date||b.created||'').localeCompare(String(a.date||a.created||'')));
+ const ex=all.filter(x=>x.kind==='expense'), inc=all.filter(x=>x.kind==='income'), transfers=all.filter(x=>x.kind==='transfer');
+ const sum=arr=>arr.reduce((v,x)=>v+Number(x.amount||0),0);
+ const expenseTotal=sum(ex), incomeTotal=sum(inc), transferTotal=sum(transfers);
+ const catMap={}; ex.forEach(x=>{const k=x.category||'Outros';catMap[k]=(catMap[k]||0)+Number(x.amount||0)});
+ const cats=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
+ const colors=['#ef5350','#ffc857','#58a6ff','#43d9a3','#b69cff','#fb923c','#22d3ee','#f472b6','#a3e635','#c084fc'];
+ const catBars=cats.map(([name,val],i)=>`<div class="chart-row"><div>${esc(name)}</div><div class="chart-track"><div class="chart-fill" style="width:${expenseTotal?val/expenseTotal*100:0}%;background:${colors[i%colors.length]}"></div></div><div style="text-align:right">${brl(val)}<br><span class="small">${expenseTotal?(val/expenseTotal*100).toFixed(1).replace('.',','):0}%</span></div></div>`).join('')||'<div class="empty">Registre despesas para ver o gráfico por categoria.</div>';
+ const orderList=orders().filter(o=>financeInPeriod(o.date||o.created));
+ const sales=sum(orderList.map(o=>({amount:Number(o.price||0)})));
+ const receivedPeriod=sum(orderList.map(o=>({amount:received(o)})));
+ const receivable=sum(orderList.map(o=>({amount:balance(o)})));
+ const orderCosts=sum(orderList.map(o=>({amount:costs(o)})));
+ const storeNet=sales-orderCosts-(scope==='loja'?expenseTotal:0);
+ const titlePeriod=({'hoje':'Hoje','semana':'Esta semana','mes':'Este mês','ano':'Este ano','tudo':'Todo o período'})[financePeriod];
+ const kindOptions=`<option value="expense">Despesa</option><option value="income">Entrada de dinheiro</option>${scope==='loja'?'<option value="transfer">Retirada/transferência pessoal</option>':''}`;
+ app.innerHTML=`<h2>Financeiro detalhado</h2>
+ <div class="row" style="margin-bottom:10px"><button class="${scope==='loja'?'gold':'secondary'}" onclick="expenseScope='loja';renderExpenses()">🏪 Loja</button><button class="${scope==='pessoal'?'gold':'secondary'}" onclick="expenseScope='pessoal';renderExpenses()">👤 Pessoal</button></div>
+ <div class="field"><label>Período dos cálculos e gráficos</label><select onchange="financePeriod=this.value;renderExpenses()">${[['hoje','Hoje'],['semana','Esta semana'],['mes','Este mês'],['ano','Este ano'],['tudo','Todo o período']].map(([v,l])=>`<option value="${v}" ${financePeriod===v?'selected':''}>${l}</option>`).join('')}</select></div>
+ <div class="stats">
+ <div class="stat"><div class="label">${scope==='loja'?'Vendas registradas':'Entradas pessoais'} · ${titlePeriod}</div><div class="value green">${brl(scope==='loja'?sales:incomeTotal)}</div></div>
+ <div class="stat"><div class="label">Despesas do período</div><div class="value redtext">${brl(expenseTotal)}</div></div>
+ <div class="stat"><div class="label">${scope==='loja'?'Recebido nos pedidos':'Entradas menos gastos'}</div><div class="value">${brl(scope==='loja'?receivedPeriod:incomeTotal-expenseTotal)}</div></div>
+ <div class="stat"><div class="label">${scope==='loja'?'Lucro estimado da loja':'Saldo pessoal do período'}</div><div class="value goldtext">${brl(scope==='loja'?storeNet:incomeTotal-expenseTotal)}</div></div>
+ </div>
+ ${scope==='loja'?`<div class="card section"><h3>Pedidos e recebimentos · ${titlePeriod}</h3><div class="meta">Total dos pedidos: <b>${brl(sales)}</b><br>Já recebido dos clientes: <b class="green">${brl(receivedPeriod)}</b><br>A receber dos clientes: <b class="redtext">${brl(receivable)}</b><br>Custos informados nos pedidos: <b>${brl(orderCosts)}</b><br>Despesas gerais da loja: <b>${brl(expenseTotal)}</b><br>Resultado estimado após custos e despesas: <b class="goldtext">${brl(storeNet)}</b></div><p class="small">O resultado é estimado e considera os pedidos cadastrados no período. Retiradas pessoais ficam fora do cálculo de despesas da empresa.</p></div>`:''}
+ <div class="formbox section"><h3>Registrar movimentação · ${scope==='loja'?'Loja':'Pessoal'}</h3><p class="small">Cada lançamento fica separado por tipo e categoria. Uma retirada do dono é mostrada à parte e não é contada como despesa operacional nem como lucro.</p><form id="expenseForm"><div class="grid2"><div class="field"><label>Tipo de movimentação</label><select name="movementType" id="movementType" onchange="updateFinanceCategories()">${kindOptions}</select></div><div class="field"><label>Categoria</label><select name="category" id="financeCategory">${financeCategoryOptions(scope,'expense').map(c=>`<option>${esc(c)}</option>`).join('')}</select></div><div class="field full"><label>Descrição detalhada *</label><input name="description" required placeholder="Ex.: MDF 18 mm, conta de energia, mercado"></div><div class="field"><label>Valor (R$) *</label><input name="amount" required type="number" min="0.01" step="0.01" placeholder="0,00"></div><div class="field"><label>Data</label><input name="date" type="date" value="${dateNow()}"></div><div class="field full"><label>Observações (opcional)</label><input name="notes" placeholder="Forma de pagamento, parcela, fornecedor... "></div></div><button type="submit">Salvar movimentação</button></form></div>
+ <div class="card section"><h3>Despesas por categoria</h3><p class="small">Percentual calculado sobre todas as despesas de ${scope==='loja'?'loja':'uso pessoal'} em ${titlePeriod.toLowerCase()}.</p>${catBars}<hr><div class="meta"><b>Total de despesas: ${brl(expenseTotal)}</b><br>Entradas extras: ${brl(incomeTotal)}${scope==='loja'?`<br>Retiradas/transferências: ${brl(transferTotal)}`:''}</div></div>
+ <h3>Movimentações detalhadas (${all.length})</h3>
+ ${all.map(x=>`<div class="card"><div class="cardtop"><div><b>${esc(x.description||x.category||'Movimentação')}</b><div class="meta">${fmtDate(String(x.date||x.created||'').slice(0,10))} · ${esc(x.category||'Sem categoria')}<br>${x.kind==='expense'?'Despesa':x.kind==='income'?'Entrada de dinheiro':'Retirada/transferência'}${x.notes?` · ${esc(x.notes)}`:''}</div><span class="badge ${x.kind==='income'?'entregue':x.kind==='transfer'?'producao':'pendente'}">${x.kind==='expense'?'SAÍDA':x.kind==='income'?'ENTRADA':'TRANSFERÊNCIA'}</span></div><div class="money" style="color:${x.kind==='income'?'var(--green)':x.kind==='transfer'?'var(--gold)':'#ff6d78'}">${x.kind==='expense'?'- ':x.kind==='income'?'+ ':''}${brl(x.amount)}</div></div><div class="actions"><button class="danger" onclick="deleteExpense('${x.id}')">Excluir lançamento</button></div></div>`).join('')||'<div class="empty">Nenhuma movimentação neste período. Escolha outro período ou registre uma movimentação.</div>'}`;
+ document.getElementById('expenseForm').addEventListener('submit',async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const kind=d.movementType;delete d.movementType;await putRecord({...d,id:crypto.randomUUID(),kind,scope,amount:Number(d.amount),created:new Date().toISOString()});await refresh();});
+}
+function updateFinanceCategories(){const kind=document.getElementById('movementType')?.value||'expense';const el=document.getElementById('financeCategory');if(!el)return;el.innerHTML=financeCategoryOptions(expenseScope,kind).map(c=>`<option>${esc(c)}</option>`).join('');}
 
 async function deleteExpense(id){if(confirm('Excluir esta despesa?')){await delRecord(id);await refresh();}}
 
@@ -227,39 +272,29 @@ async function saveBudgetAsOrder(){
 }
 
 function renderCharts(){
- const os=orders(), ex=expenses();
- const expenseTotal=ex.reduce((s,e)=>s+Number(e.amount||0),0);
- const revenue=os.reduce((s,o)=>s+Number(o.price||0),0);
- const receivedTotal=os.reduce((s,o)=>s+received(o),0);
- const costTotal=os.reduce((s,o)=>s+costs(o),0);
- const estimated=revenue-costTotal-expenseTotal;
- const catMap={}; ex.forEach(e=>{const c=e.category||'Outros';catMap[c]=(catMap[c]||0)+Number(e.amount||0);});
- const catEntries=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
- const maxCat=Math.max(1,...catEntries.map(x=>x[1]));
- const monthNames=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
- const months=[];
- const now=new Date();
- for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;months.push({key,label:monthNames[d.getMonth()],sales:0,expenses:0});}
- const monthMap=Object.fromEntries(months.map(m=>[m.key,m]));
- os.forEach(o=>{const key=String(o.created||o.due||'').slice(0,7);if(monthMap[key])monthMap[key].sales+=Number(o.price||0);});
- ex.forEach(e=>{const key=String(e.date||e.created||'').slice(0,7);if(monthMap[key])monthMap[key].expenses+=Number(e.amount||0);});
- const maxMonth=Math.max(1,...months.flatMap(m=>[m.sales,m.expenses]));
- const chartMonths=months.map(m=>`<div class="month-col"><div class="month-bars"><div class="month-bar" title="Vendas ${brl(m.sales)}" style="height:${Math.max(m.sales?3:0,m.sales/maxMonth*130)}px;background:#d7ad55"></div><div class="month-bar" title="Despesas ${brl(m.expenses)}" style="height:${Math.max(m.expenses?3:0,m.expenses/maxMonth*130)}px;background:#e32636"></div></div><div class="month-label">${m.label}</div></div>`).join('');
- const categoryBars=catEntries.map(([name,value])=>`<div class="chart-row"><div>${esc(name)}</div><div class="chart-track"><div class="chart-fill" style="width:${value/maxCat*100}%;background:${name==='Material'?'#d7ad55':'#e32636'}"></div></div><div style="text-align:right">${brl(value)}</div></div>`).join('')||'<div class="empty">Registre despesas para visualizar os gastos por categoria.</div>';
- const orderRows=os.slice(0,12).map(o=>{const price=Number(o.price||0),cost=costs(o),margin=price-cost;const pct=price?Math.max(0,Math.min(100,cost/price*100)):0;return `<div class="card"><div class="cardtop"><div><b>#${esc(o.number)} · ${esc(o.client||'Cliente')}</b><div class="meta">Orçamento: ${brl(price)} · Custo informado: ${brl(cost)}</div></div><div class="money">${brl(margin)}</div></div><div class="chart-track" style="margin-top:10px"><div class="chart-fill" title="Custo" style="width:${pct}%;background:#e32636"></div></div><div class="meta">Vermelho = custo informado; restante = diferença antes das despesas gerais.</div></div>`;}).join('')||'<div class="empty">Cadastre pedidos para comparar orçamento e custo.</div>';
- app.innerHTML=`<h2>Gráficos e análise financeira</h2>
- <div class="stats">
- <div class="stat"><div class="label">Orçamentos / vendas</div><div class="value">${brl(revenue)}</div></div>
- <div class="stat"><div class="label">Custos informados nos pedidos</div><div class="value redtext">${brl(costTotal)}</div></div>
- <div class="stat"><div class="label">Despesas gerais</div><div class="value">${brl(expenseTotal)}</div></div>
- <div class="stat"><div class="label">Resultado estimado</div><div class="value goldtext">${brl(estimated)}</div></div></div>
- <div class="card section"><h3>Vendas x despesas — últimos 6 meses</h3><div class="chart-legend"><span><i class="dot" style="background:#d7ad55"></i>Orçamentos de pedidos</span><span><i class="dot" style="background:#e32636"></i>Despesas lançadas</span></div><div class="chart-month">${chartMonths}</div><p class="small">As vendas são agrupadas pela data de criação do pedido; as despesas, pela data registrada. Valores sem data podem não entrar no gráfico.</p></div>
- <div class="card section"><h3>Gastos por categoria</h3><p class="small">Para analisar materiais, registre compras em Despesas e selecione a categoria “Material”.</p>${categoryBars}</div>
- <div class="section"><h3>Orçamento x custo por pedido</h3><p class="small">Diferença estimada = valor do pedido menos custo informado. Não inclui rateio de despesas gerais nesta comparação.</p>${orderRows}</div>
- <button class="secondary" style="width:100%" onclick="setTab('despesas')">＋ Registrar despesa / material</button>`;
+ const period=financePeriod, periodLabel=({'hoje':'Hoje','semana':'Esta semana','mes':'Este mês','ano':'Este ano','tudo':'Todo o período'})[period];
+ const shopMoves=financeMovements('loja'), personalMoves=financeMovements('pessoal');
+ const sum=arr=>arr.reduce((n,x)=>n+Number(x.amount||0),0);
+ const shopExpenses=shopMoves.filter(x=>x.kind==='expense'), shopIncome=shopMoves.filter(x=>x.kind==='income'), withdrawals=shopMoves.filter(x=>x.kind==='transfer');
+ const personalExpenses=personalMoves.filter(x=>x.kind==='expense'), personalIncome=personalMoves.filter(x=>x.kind==='income');
+ const os=orders().filter(o=>financeInPeriod(o.date||o.created));
+ const sales=sum(os.map(o=>({amount:o.price}))), receivedSum=sum(os.map(o=>({amount:received(o)}))), receivableSum=sum(os.map(o=>({amount:balance(o)}))), costSum=sum(os.map(o=>({amount:costs(o)})));
+ const shopExpSum=sum(shopExpenses), personalExpSum=sum(personalExpenses), shopIncomeSum=sum(shopIncome), personalIncomeSum=sum(personalIncome);
+ const storeResult=sales-costSum-shopExpSum+shopIncomeSum;
+ const personalBalance=personalIncomeSum-personalExpSum;
+ const colors=['#ef5350','#ffc857','#58a6ff','#43d9a3','#b69cff','#fb923c','#22d3ee','#f472b6','#a3e635','#c084fc'];
+ function bars(arr){const map={};arr.forEach(x=>{const k=x.category||'Outros';map[k]=(map[k]||0)+Number(x.amount||0)});const entries=Object.entries(map).sort((a,b)=>b[1]-a[1]);const total=sum(arr);return entries.map(([name,val],i)=>`<div class="chart-row"><div>${esc(name)}</div><div class="chart-track"><div class="chart-fill" style="width:${total?val/total*100:0}%;background:${colors[i%colors.length]}"></div></div><div style="text-align:right">${brl(val)}<br><span class="small">${total?(val/total*100).toFixed(1).replace('.',','):0}%</span></div></div>`).join('')||'<div class="empty">Nenhuma despesa registrada neste período.</div>'}
+ const max=Math.max(1,sales,receivedSum,shopExpSum,personalExpSum,personalIncomeSum);
+ const comparison=[['Vendas',sales,'#ffc857'],['Recebido',receivedSum,'#43d9a3'],['Despesas da loja',shopExpSum,'#ef5350'],['Despesas pessoais',personalExpSum,'#b69cff'],['Entradas pessoais',personalIncomeSum,'#58a6ff']].map(([label,val,color])=>`<div class="chart-row" style="grid-template-columns:120px 1fr 100px"><div>${label}</div><div class="chart-track"><div class="chart-fill" style="width:${val/max*100}%;background:${color}"></div></div><div style="text-align:right">${brl(val)}</div></div>`).join('');
+ app.innerHTML=`<h2>Gráficos e resumo financeiro</h2><div class="field"><label>Período dos gráficos e somas</label><select onchange="financePeriod=this.value;renderCharts()">${[['hoje','Hoje'],['semana','Esta semana'],['mes','Este mês'],['ano','Este ano'],['tudo','Todo o período']].map(([v,l])=>`<option value="${v}" ${period===v?'selected':''}>${l}</option>`).join('')}</select></div>
+ <h3>🏪 Resumo da loja · ${periodLabel}</h3><div class="stats"><div class="stat"><div class="label">Valor dos pedidos</div><div class="value">${brl(sales)}</div></div><div class="stat"><div class="label">Recebido dos clientes</div><div class="value green">${brl(receivedSum)}</div></div><div class="stat"><div class="label">Ainda a receber</div><div class="value redtext">${brl(receivableSum)}</div></div><div class="stat"><div class="label">Custos dos pedidos</div><div class="value">${brl(costSum)}</div></div><div class="stat"><div class="label">Despesas da loja</div><div class="value redtext">${brl(shopExpSum)}</div></div><div class="stat"><div class="label">Outras receitas da loja</div><div class="value green">${brl(shopIncomeSum)}</div></div><div class="stat"><div class="label">Retiradas/transferências</div><div class="value">${brl(sum(withdrawals))}</div></div><div class="stat"><div class="label">Resultado estimado</div><div class="value goldtext">${brl(storeResult)}</div></div></div>
+ <div class="card section"><h3>Gastos da loja por categoria</h3><p class="small">Cada barra mostra o valor e a porcentagem de participação no total de despesas da loja.</p>${bars(shopExpenses)}<hr><b>Total de despesas da loja: ${brl(shopExpSum)}</b></div>
+ <h3>👤 Resumo pessoal · ${periodLabel}</h3><div class="stats"><div class="stat"><div class="label">Entradas pessoais</div><div class="value green">${brl(personalIncomeSum)}</div></div><div class="stat"><div class="label">Gastos pessoais</div><div class="value redtext">${brl(personalExpSum)}</div></div><div class="stat"><div class="label">Saldo pessoal do período</div><div class="value goldtext">${brl(personalBalance)}</div></div></div>
+ <div class="card section"><h3>Gastos pessoais por categoria</h3><p class="small">As despesas pessoais não entram no cálculo do lucro da loja.</p>${bars(personalExpenses)}<hr><b>Total de gastos pessoais: ${brl(personalExpSum)}</b></div>
+ <div class="card section"><h3>Comparação visual dos valores</h3><p class="small">As barras facilitam comparar os totais sem misturar os cálculos de cada área.</p>${comparison}<div class="chart-legend"><span><i class="dot" style="background:#ffc857"></i>Pedidos</span><span><i class="dot" style="background:#43d9a3"></i>Recebido/entradas</span><span><i class="dot" style="background:#ef5350"></i>Despesas da loja</span><span><i class="dot" style="background:#b69cff"></i>Despesas pessoais</span></div></div>
+ <button class="secondary" style="width:100%" onclick="setTab('despesas')">＋ Abrir financeiro e lançar movimentação</button>`;
 }
 
-let cutParts=[];
 function renderCutPlanner(){
 app.innerHTML=`<h2>Plano de corte MDF</h2>
 <div class="formbox section"><h3>1. Defina a chapa</h3><div class="grid2">
