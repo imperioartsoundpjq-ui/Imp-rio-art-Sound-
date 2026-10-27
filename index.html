@@ -333,7 +333,7 @@ app.innerHTML=`<h2>Plano de corte MDF</h2>
 <div class="field"><label>Preço de cada chapa (R$)</label><input id="sheetPrice" type="number" min="0" step="0.01" value="0" placeholder="Ex.: 180,00"></div>
 <div class="field"><label>Perda da serra/fresa (mm)</label><input id="kerf" type="number" min="0" step=".1" value="3"></div>
 <div class="field full"><label>Margem nas bordas (mm)</label><input id="margin" type="number" min="0" value="10"></div></div>
-<p class="small">Padrão inicial 2750 × 1850 mm, MDF 18 mm, perda de corte 3 mm e margem de 10 mm. Espessuras disponíveis: 6, 9, 12, 15, 18 e 25 mm. Confira as medidas da chapa real.</p></div>
+<p class="small">Padrão inicial 2750 × 1850 mm, MDF 18 mm, perda de corte 3 mm e margem de 10 mm. Confira as medidas da chapa real.</p></div>
 <div class="formbox section"><h3>2. Adicione as peças</h3><div class="grid2">
 <div class="field"><label>Nome da peça</label><input id="partName" placeholder="Ex.: lateral"></div>
 <div class="field"><label>Quantidade</label><input id="partQty" type="number" min="1" value="2"></div>
@@ -376,7 +376,6 @@ const drawings=sheets.map((s,si)=>`<div class="card"><b>Chapa ${si+1}</b><div st
 out.innerHTML=`<div class="stats"><div class="stat"><div class="label">Peças encaixadas</div><div class="value">${placed.length}/${cutParts.length}</div></div><div class="stat"><div class="label">Chapas estimadas</div><div class="value">${sheets.length}</div></div><div class="stat"><div class="label">Área das peças</div><div class="value">${(area/1e6).toLocaleString('pt-BR',{maximumFractionDigits:2})} m²</div></div><div class="stat"><div class="label">Aproveitamento teórico</div><div class="value goldtext">${yieldPct.toLocaleString('pt-BR',{maximumFractionDigits:1})}%</div></div></div>
 <div class="card section"><h3>4. Orçamento do material MDF</h3><div class="stats">
 <div class="stat"><div class="label">Preço por chapa</div><div class="value">${brl(sheetPrice)}</div></div>
-<div class="stat"><div class="label">Preço estimado por m²</div><div class="value">${brl(sheetArea>0?sheetPrice/(sheetArea/1e6):0)}</div></div>
 <div class="stat"><div class="label">Custo de compra (${sheets.length} chapa(s))</div><div class="value">${brl(totalSheetCost)}</div></div>
 <div class="stat"><div class="label">Custo proporcional das peças</div><div class="value">${brl(materialUsedCost)}</div></div>
 <div class="stat"><div class="label">Valor estimado das sobras</div><div class="value">${brl(leftoverCost)}</div></div>
