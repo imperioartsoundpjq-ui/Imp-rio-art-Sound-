@@ -34,6 +34,29 @@ button.secondary{background:#10243d;border:1px solid #2c4d73;box-shadow:none}but
 .chart-row{display:grid;grid-template-columns:90px 1fr 78px;gap:8px;align-items:center;margin:10px 0;font-size:12px}.chart-track{height:16px;background:#303037;border-radius:5px;overflow:hidden}.chart-fill{height:100%;border-radius:5px;min-width:0}.chart-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:8px 0 14px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}.chart-month{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;align-items:end;height:170px;padding:10px 0}.month-col{height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:5px;min-width:0}.month-bars{height:135px;width:100%;display:flex;align-items:flex-end;justify-content:center;gap:3px}.month-bar{width:38%;max-width:20px;border-radius:4px 4px 0 0;min-height:2px}.month-label{font-size:10px;color:var(--muted)}
 hr{border:0;border-top:1px solid var(--line);margin:14px 0}
 @media(min-width:650px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}.stat .value{font-size:23px}}
+
+/* IMPÉRIO ART SOUND — tema visual atualizado */
+:root{color-scheme:dark;--bg:#061020;--panel:#0b1b31;--panel2:#102743;--text:#f4f8ff;--muted:#a8bdd7;--red:#1677ff;--gold:#ffd33d;--line:#1e416b;--green:#18d879;--purple:#a855f7;--cyan:#22d3ee}
+html{background:#061020;scroll-behavior:smooth}
+body{background:radial-gradient(ellipse at 50% -20%,#102c50 0,#061020 55%,#030914 100%);color:var(--text)}
+header{background:linear-gradient(110deg,#020916f5,#081a31f5 65%,#03101f);border-bottom:1px solid #1e416b;box-shadow:0 8px 30px #0008}
+.brand{font-size:20px;letter-spacing:.45px}.brand span{color:#ff304f;text-shadow:0 0 16px #ff304f44}.brand-logo{width:84px;height:64px;object-fit:contain;background:#020308;border:1px solid #24486f;border-radius:12px;padding:2px}
+main{max-width:1180px;padding:18px 16px 30px}
+h2{font-size:20px;color:#f5f8ff;letter-spacing:.1px}h3{font-size:16px;color:#eaf3ff}
+.card,.formbox,.stat,.budget-result{background:linear-gradient(145deg,#102541f5,#09172af7);border:1px solid #21446d;border-radius:16px;box-shadow:0 10px 28px #0003,inset 0 1px #ffffff08}
+.stat:nth-child(4n+1){border-top:2px solid #2185ff}.stat:nth-child(4n+2){border-top:2px solid #1bd987}.stat:nth-child(4n+3){border-top:2px solid #b65cff}.stat:nth-child(4n){border-top:2px solid #ffd33d}
+.field label{color:#c7dcf7;font-size:12px;font-weight:700;letter-spacing:.12px}.field input,.field select,.field textarea,.toolbar input,.cost-line input{background:#061326;color:#f5f8ff;border:1px solid #2a4e78;border-radius:10px;box-shadow:inset 0 1px 5px #0004}.field input:focus,.field select:focus,.field textarea:focus{border-color:#28a0ff;box-shadow:0 0 0 3px #1687ff25;outline:none}
+button,.button{background:linear-gradient(135deg,#1683ff,#0757d4);border:1px solid #3c9bff;color:white;border-radius:11px;box-shadow:0 5px 18px #0878ff30;transition:filter .15s,transform .15s}button:hover,.button:hover{filter:brightness(1.12)}button:active{transform:translateY(1px)}button.secondary{background:#102640;border:1px solid #2a4b70;box-shadow:none}button.gold{background:linear-gradient(135deg,#ffe45d,#f5b91a);color:#081326;border-color:#ffe77a}button.danger{background:linear-gradient(135deg,#ff4a62,#c81e3b);border-color:#ff6b7c}
+.nav{gap:8px;background:linear-gradient(90deg,#020812f7,#07172af7);border-top:1px solid #1c416c;padding:8px 10px calc(8px + env(safe-area-inset-bottom));scrollbar-color:#2d6198 #071326;box-shadow:0 -8px 25px #0004;justify-content:flex-start}
+.nav button{flex:0 0 96px;min-width:96px;height:58px;background:linear-gradient(145deg,#0d2038,#08172a);border:1px solid #1b385b;color:#b8cbe3;font-size:11px;font-weight:700;border-radius:12px;white-space:normal;line-height:1.2;padding:6px 5px;box-shadow:none}
+.nav button b{font-size:20px;line-height:1.15;margin-bottom:3px;color:#4da2ff}.nav button:nth-child(3n+2) b{color:#b86aff}.nav button:nth-child(3n) b{color:#22d987}.nav button.active{background:linear-gradient(145deg,#0d3c78,#075bd4);border-color:#27a1ff;color:#fff;box-shadow:0 0 0 1px #1687ff55,0 0 20px #0878ff33}.nav button.active b{color:#fff}
+.badge{border:1px solid #315477;background:#122844;color:#e8f2ff}.badge.pronto,.badge.entregue{background:#103d30;color:#73f0b5;border-color:#1b8059}.badge.producao{background:#443710;color:#ffe27b;border-color:#907522}.badge.pendente{background:#481b2a;color:#ff9bab;border-color:#9c314b}
+.money,.goldtext{color:#ffd84d}.green{color:#31e995}.redtext{color:#ff7189}.empty{background:#09182b;border-color:#2a4c72;color:#adc2dd}.thumb{border-color:#2a4b70}.chart-track{background:#152c47;border-radius:99px;overflow:hidden}.chart-fill{border-radius:99px}
+/* Formulários com identificação clara */
+.formbox h3,.card h3{padding-bottom:8px;border-bottom:1px solid #244568;margin-bottom:13px}.section{margin-bottom:18px}.cost-line{padding:5px 0}.small,.meta{color:#a8bdd7}
+@media(min-width:900px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}.grid2{gap:14px}.nav button{flex-basis:104px;min-width:104px}}
+@media(max-width:560px){main{padding:12px 10px 24px}.brand-logo{width:62px;height:50px}.brand{font-size:17px}.nav button{flex-basis:82px;min-width:82px;height:54px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.field input,.field select,.field textarea{padding:11px}}
+
 </style>
 </head>
 <body>
