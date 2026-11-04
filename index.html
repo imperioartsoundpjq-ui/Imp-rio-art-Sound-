@@ -898,18 +898,17 @@ function renderCharts(range='8w',scope='loja'){
  const monthlyProjection=averageWeekly*4.33;
  const managementInsight= !scopedOrders.length ? 'Cadastre pedidos para gerar análises de desempenho.' : netMargin<0 ? 'Atenção: o resultado estimado está negativo. Revise custos dos pedidos e despesas.' : expenseRatio>25 ? 'As despesas gerais representam mais de 25% das vendas neste período. Revise as categorias com maior participação.' : overdueOrders.length ? `Existem ${overdueOrders.length} pedido(s) com entrega atrasada. Priorize a produção e atualize os prazos.` : 'O resultado está positivo no período. Continue registrando todos os custos para manter a margem confiável.';
  const scopeButtons=`<div class="row" style="margin-bottom:12px"><button class="${scope==='loja'?'':'secondary'}" onclick="renderCharts('${range}','loja')">🏪 Loja</button><button class="${scope==='pessoal'?'':'secondary'}" onclick="renderCharts('${range}','pessoal')">👤 Pessoal</button></div>`;
- app.innerHTML=`<h2>Gráficos e análise financeira</h2>${scopeButtons}
+ app.innerHTML=`<div class="report-hero"><div><div class="ias-eyebrow">CENTRO DE INTELIGÊNCIA</div><h2>Painel de gestão</h2><p>Visão financeira, comercial e operacional da sua empresa em um só lugar.</p></div><div class="report-live">● DADOS ATUALIZADOS</div></div>${scopeButtons}
  <div class="toolbar"><label class="small" for="chartRange" style="align-self:center">Período</label><select id="chartRange" onchange="renderCharts(this.value,'${scope}')"><option value="8w" ${range==='8w'?'selected':''}>Últimas 8 semanas</option><option value="12w" ${range==='12w'?'selected':''}>Últimas 12 semanas</option><option value="26w" ${range==='26w'?'selected':''}>Últimas 26 semanas</option></select></div>
- <div class="stats"><div class="stat"><div class="label">Vendas / pedidos</div><div class="value">${brl(revenue)}</div></div><div class="stat"><div class="label">Recebido nos pedidos</div><div class="value green">${brl(receivedTotal)}</div></div><div class="stat"><div class="label">Custos informados</div><div class="value redtext">${brl(costTotal)}</div></div><div class="stat"><div class="label">Despesas pagas</div><div class="value redtext">${brl(expenseTotal)}</div></div><div class="stat"><div class="label">Lucro bruto estimado</div><div class="value ${grossProfit<0?'redtext':'green'}">${brl(grossProfit)}</div></div><div class="stat"><div class="label">Resultado após despesas</div><div class="value ${netEstimated<0?'redtext':'green'}">${brl(netEstimated)}</div></div><div class="stat"><div class="label">Margem bruta estimada</div><div class="value">${fmtPct(grossMargin)}</div></div><div class="stat"><div class="label">Margem líquida estimada</div><div class="value ${netMargin<0?'redtext':'green'}">${fmtPct(netMargin)}</div></div></div>
- <div class="card section"><h3>Indicadores de cada R$ 100,00 vendidos</h3><div class="chart-row"><b>Custos</b><div class="chart-track"><div class="chart-fill" style="width:${Math.min(100,revenue?costTotal/revenue*100:0)}%;background:#537ca5"></div></div><b>${fmtPct(revenue?costTotal/revenue*100:0)}</b></div><div class="chart-row"><b>Despesas</b><div class="chart-track"><div class="chart-fill" style="width:${Math.min(100,expenseRatio)}%;background:#c62838"></div></div><b>${fmtPct(expenseRatio)}</b></div><div class="chart-row"><b>Margem líquida</b><div class="chart-track"><div class="chart-fill" style="width:${Math.max(0,Math.min(100,netMargin))}%;background:#16845b"></div></div><b>${fmtPct(netMargin)}</b></div><p class="small">Percentuais calculados sobre o valor dos pedidos cadastrados no período. Se custos ou despesas não estiverem registrados, a margem ficará superestimada.</p></div>
- <div class="card section"><h3>Vendas, custos e despesas por semana</h3><div class="chart-legend"><span><i class="dot" style="background:#b7791f"></i>Vendas</span><span><i class="dot" style="background:#537ca5"></i>Custos dos pedidos</span><span><i class="dot" style="background:#c62838"></i>Despesas pagas</span></div><div class="chart-month">${chartMonths}</div><p class="small">O valor abaixo de cada semana é o resultado estimado: vendas menos custos cadastrados e despesas pagas.</p></div>
- <div class="card section"><h3>Onde você está gastando mais?</h3><p class="small">Participação de cada categoria no total de despesas pagas: ${brl(expenseTotal)}. As contas apenas lançadas e ainda não pagas não entram neste gráfico.</p>${categoryBars}<p class="small">Total lançado no período, incluindo contas pendentes: <b>${brl(launchedTotal)}</b>.</p></div>
- <div class="section"><h3>Margem estimada por pedido</h3><p class="small">Mostra a diferença entre o preço do pedido e o custo informado nele. Não inclui rateio das despesas gerais da loja.</p>${orderRows}</div>
+ <div class="report-kpis"><div class="report-kpi income"><span>FATURAMENTO / PEDIDOS</span><strong>${brl(revenue)}</strong><small>Valor total dos pedidos no período</small></div><div class="report-kpi neutral"><span>DINHEIRO RECEBIDO</span><strong>${brl(receivedTotal)}</strong><small>Pagamentos confirmados</small></div><div class="report-kpi expense"><span>CUSTOS DOS PEDIDOS</span><strong>${brl(costTotal)}</strong><small>Materiais e custos cadastrados</small></div><div class="report-kpi expense"><span>DESPESAS PAGAS</span><strong>${brl(expenseTotal)}</strong><small>Saídas efetivamente pagas</small></div><div class="report-kpi ${grossProfit<0?'expense':'income'}"><span>LUCRO BRUTO ESTIMADO</span><strong>${brl(grossProfit)}</strong><small>Vendas menos custos diretos</small></div><div class="report-kpi ${netEstimated<0?'expense':'income'}"><span>RESULTADO APÓS DESPESAS</span><strong>${brl(netEstimated)}</strong><small>Lucro bruto menos despesas pagas</small></div><div class="report-kpi neutral"><span>MARGEM BRUTA</span><strong>${fmtPct(grossMargin)}</strong><small>Lucro bruto sobre vendas</small></div><div class="report-kpi neutral"><span>MARGEM LÍQUIDA</span><strong>${fmtPct(netMargin)}</strong><small>Resultado sobre vendas</small></div></div><div class="report-section"><h3>Eficiência financeira · composição de cada R$ 100 vendidos</h3><div class="chart-row"><b>Custos</b><div class="chart-track"><div class="chart-fill" style="width:${Math.min(100,revenue?costTotal/revenue*100:0)}%;background:#537ca5"></div></div><b>${fmtPct(revenue?costTotal/revenue*100:0)}</b></div><div class="chart-row"><b>Despesas</b><div class="chart-track"><div class="chart-fill" style="width:${Math.min(100,expenseRatio)}%;background:#c62838"></div></div><b>${fmtPct(expenseRatio)}</b></div><div class="chart-row"><b>Margem líquida</b><div class="chart-track"><div class="chart-fill" style="width:${Math.max(0,Math.min(100,netMargin))}%;background:#16845b"></div></div><b>${fmtPct(netMargin)}</b></div><p class="small">Percentuais calculados sobre o valor dos pedidos cadastrados no período. Se custos ou despesas não estiverem registrados, a margem ficará superestimada.</p></div>
+ <div class="report-section"><h3>Desempenho semanal · vendas, custos e despesas</h3><div class="chart-legend"><span><i class="dot" style="background:#b7791f"></i>Vendas</span><span><i class="dot" style="background:#537ca5"></i>Custos dos pedidos</span><span><i class="dot" style="background:#c62838"></i>Despesas pagas</span></div><div class="chart-month">${chartMonths}</div><p class="small">O valor abaixo de cada semana é o resultado estimado: vendas menos custos cadastrados e despesas pagas.</p></div>
+ <div class="report-section"><h3>Mapa de despesas · onde o dinheiro está sendo consumido</h3><p class="small">Participação de cada categoria no total de despesas pagas: ${brl(expenseTotal)}. As contas apenas lançadas e ainda não pagas não entram neste gráfico.</p>${categoryBars}<p class="small">Total lançado no período, incluindo contas pendentes: <b>${brl(launchedTotal)}</b>.</p></div>
+ <div class="report-section"><h3>Rentabilidade por pedido</h3><p class="small">Mostra a diferença entre o preço do pedido e o custo informado nele. Não inclui rateio das despesas gerais da loja.</p>${orderRows}</div>
  <div class="stats section"><div class="stat"><div class="label">Pedidos no período</div><div class="value">${scopedOrders.length}</div></div><div class="stat"><div class="label">Ticket médio</div><div class="value">${brl(avgTicket)}</div></div><div class="stat"><div class="label">Saldo a receber</div><div class="value">${brl(outstanding)}</div></div><div class="stat"><div class="label">Pedidos atrasados</div><div class="value ${overdueOrders.length?'redtext':'green'}">${overdueOrders.length}</div></div></div>
- <div class="card section"><h3>Gestão operacional · status dos pedidos</h3>${statusRows}<p class="small">Distribuição dos pedidos criados nas últimas ${weekCount} semanas.</p></div>
- <div class="card section"><h3>Clientes com maior faturamento</h3>${clientRows}<p class="small">Ranking calculado pelo valor total dos pedidos no período.</p></div>
- <div class="card section"><h3>Projeção de faturamento</h3><div class="stats"><div class="stat"><div class="label">Média semanal</div><div class="value">${brl(averageWeekly)}</div></div><div class="stat"><div class="label">Projeção mensal</div><div class="value">${brl(monthlyProjection)}</div></div></div><p class="small">Estimativa simples: média semanal do período × 4,33. Não é garantia de receita futura; depende de demanda, capacidade e pedidos fechados.</p></div>
- <div class="card section"><h3>Diagnóstico de gestão</h3><p>${esc(managementInsight)}</p><p class="small">Atenção: lucro e margem são estimativas. Custos não cadastrados, retiradas e despesas lançadas fora do período podem alterar o resultado real.</p></div>
+ <div class="report-section"><h3>Operação · carteira e andamento dos pedidos</h3>${statusRows}<p class="small">Distribuição dos pedidos criados nas últimas ${weekCount} semanas.</p></div>
+ <div class="report-section"><h3>Comercial · clientes com maior faturamento</h3>${clientRows}<p class="small">Ranking calculado pelo valor total dos pedidos no período.</p></div>
+ <div class="report-section"><h3>Previsão de desempenho · projeção de faturamento</h3><div class="stats"><div class="stat"><div class="label">Média semanal</div><div class="value">${brl(averageWeekly)}</div></div><div class="stat"><div class="label">Projeção mensal</div><div class="value">${brl(monthlyProjection)}</div></div></div><p class="small">Estimativa simples: média semanal do período × 4,33. Não é garantia de receita futura; depende de demanda, capacidade e pedidos fechados.</p></div>
+ <div class="report-section"><h3>Diagnóstico gerencial · pontos de atenção</h3><div class="report-insight"><strong>Análise automática:</strong> ${esc(managementInsight)}</div><p class="small">Atenção: lucro e margem são estimativas. Custos não cadastrados, retiradas e despesas lançadas fora do período podem alterar o resultado real.</p></div>
  <button class="secondary" style="width:100%" onclick="setTab('despesas')">＋ Registrar despesa / material</button>`;
 }
 let cutParts=[];
@@ -1405,3 +1404,64 @@ document.querySelectorAll('.nav button[data-tab]').forEach(b=>b.addEventListener
 (async()=>{try{db=await openDB();if(!window.supabase||!window.APP_CONFIG||!APP_CONFIG.url||!APP_CONFIG.anonKey||APP_CONFIG.url.includes('COLOQUE_')){app.innerHTML='<div class="card"><h2>Configuração necessária</h2><p class="small">O aplicativo precisa ser conectado ao projeto de banco de dados. Siga o arquivo LEIA-ME-NUVEM.txt incluído no pacote e preencha config.js antes de publicar.</p></div>';return;}supabaseClient=window.supabase.createClient(APP_CONFIG.url,APP_CONFIG.anonKey);const {data:{session}}=await supabaseClient.auth.getSession();if(session){currentUser=session.user;await startCloudApp();}else authScreen();supabaseClient.auth.onAuthStateChange(async(_event,session)=>{currentUser=session?.user||null;if(currentUser){await startCloudApp();}else{if(cloudChannel){await supabaseClient.removeChannel(cloudChannel);cloudChannel=null;}document.querySelector('.nav').style.display='none';authScreen();}});if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});}catch(e){app.innerHTML='<div class="empty">Não foi possível iniciar o aplicativo: '+esc(e.message||e)+'</div>';}})();
 </script>
 </body></html>
+<!-- V28: legibilidade financeira e painel gerencial de relatórios -->
+<style id="imperio-v28-contrast-management">
+/* Contraste forte e consistente para números em todas as telas */
+#app .stat .value,
+#app .stat strong,
+#app .budget-result .big,
+#app .money,
+#app .ias-kpi>strong,
+#app .ias-profit,
+#app .ias-result-row b,
+#app .chart-row b,
+#app .forecast-value,
+#app .financial-value {
+  color:#ffffff !important;
+  opacity:1 !important;
+  text-shadow:0 1px 2px rgba(0,0,0,.35);
+  font-weight:850 !important;
+}
+#app .stat .value.green,#app .money.green,#app .financial-in,
+#app .ias-profit:not(.negative),#app .positive-value {color:#39f28a !important;}
+#app .stat .value.red,#app .stat .value.redtext,#app .money.redtext,
+#app .financial-out,#app .negative-value,#app .ias-profit.negative {color:#ff6572 !important;}
+#app .stat .label,#app .small,#app .meta,#app .field label,
+#app .chart-legend,#app .chart-row,#app .chart-row * {color:#e0e5ed !important;opacity:1 !important;}
+#app input,#app select,#app textarea {color:#fff !important;caret-color:#ff5262 !important;}
+#app input::placeholder,#app textarea::placeholder {color:#aeb8c7 !important;opacity:1 !important;}
+#app .stat {background:linear-gradient(145deg,#202630,#151a22)!important;border:1px solid #465264!important;}
+#app .stat .value {font-size:clamp(20px,2.2vw,29px)!important;letter-spacing:-.45px;line-height:1.2;}
+/* Relatórios: painel executivo com leitura de cima para baixo */
+#app .report-hero {display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px 22px;margin:0 0 16px;border:1px solid #465264;border-radius:18px;background:linear-gradient(115deg,#242b36,#151a22 72%);}
+#app .report-hero h2 {font-size:25px;margin:0 0 5px!important;}
+#app .report-hero p {color:#d2dae5!important;margin:0;font-size:13px;}
+#app .report-hero .report-live {font-size:11px;color:#50e895!important;font-weight:800;white-space:nowrap;}
+#app .report-kpis {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0;}
+#app .report-kpi {padding:16px 17px;border:1px solid #465264;border-radius:15px;background:linear-gradient(145deg,#222a35,#151a22);min-width:0;}
+#app .report-kpi span {display:block;color:#d0d8e3!important;font-size:11px;font-weight:750;margin-bottom:9px;}
+#app .report-kpi strong {display:block;color:#fff!important;font-size:clamp(19px,2vw,27px);font-weight:900;overflow-wrap:anywhere;}
+#app .report-kpi small {display:block;color:#b8c3d1!important;font-size:10px;margin-top:7px;}
+#app .report-kpi.income strong {color:#42ed91!important;}
+#app .report-kpi.expense strong {color:#ff6976!important;}
+#app .report-kpi.neutral strong {color:#70c5ff!important;}
+#app .report-section {padding:18px 19px;margin:14px 0;border:1px solid #414c5c;border-radius:17px;background:linear-gradient(145deg,#1c232d,#12171e);box-shadow:0 8px 24px #0004;}
+#app .report-section h3 {font-size:16px;margin:0 0 13px!important;color:#fff!important;}
+#app .report-section .small {color:#c8d1dd!important;}
+#app .chart-month {display:grid!important;grid-template-columns:repeat(8,minmax(92px,1fr))!important;gap:10px!important;align-items:end!important;overflow-x:auto!important;overflow-y:hidden!important;height:230px!important;padding:12px 5px 7px!important;scrollbar-color:#657184 #252d38;}
+#app .month-col {min-width:88px!important;height:100%!important;display:flex!important;flex-direction:column!important;justify-content:flex-end!important;align-items:stretch!important;gap:7px!important;padding:7px 6px!important;border:1px solid #343f4e!important;border-radius:11px!important;background:#151c25!important;}
+#app .month-bars {height:145px!important;min-height:145px!important;display:flex!important;align-items:flex-end!important;justify-content:center!important;gap:6px!important;border-bottom:1px solid #566274!important;padding:0 4px!important;}
+#app .month-bar {width:22%!important;max-width:24px!important;min-height:0!important;border-radius:6px 6px 2px 2px!important;box-shadow:0 0 10px #0005;}
+#app .month-label {font-size:11px!important;color:#f0f3f8!important;font-weight:800;text-align:center;}
+#app .month-col .small {font-size:10px!important;color:#d9e1eb!important;text-align:center;white-space:nowrap;}
+#app .chart-track {height:13px!important;background:#354151!important;border:1px solid #4b596b!important;border-radius:20px!important;overflow:hidden;}
+#app .chart-fill {height:100%!important;border-radius:20px!important;}
+#app .chart-row {gap:12px!important;margin:12px 0!important;}
+#app .chart-legend {display:flex;flex-wrap:wrap;gap:15px;padding:10px 0;color:#eef2f7!important;}
+#app .chart-legend span {font-weight:750;}
+#app .report-insight {padding:16px 18px;border-left:4px solid #ed2638;border-radius:10px;background:#252c37;color:#f4f6fa!important;line-height:1.55;}
+#app .report-insight strong {color:#fff!important;}
+#app .toolbar select,#app .toolbar input {min-height:42px;background:#111720!important;color:#fff!important;border:1px solid #536174!important;}
+@media(max-width:900px){#app .report-kpis{grid-template-columns:repeat(2,minmax(0,1fr));}#app .report-hero{flex-direction:column;}}
+@media(max-width:520px){#app .report-kpis{grid-template-columns:1fr 1fr;gap:8px;}#app .report-kpi{padding:12px;}#app .report-section{padding:13px;}}
+</style>
