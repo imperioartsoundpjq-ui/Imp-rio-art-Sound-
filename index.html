@@ -521,7 +521,23 @@ function balance(o){return Number(o.price||0)-received(o);}
 function profit(o){return Number(o.price||0)-costs(o);}
 function fmtDate(s){if(!s)return '—';const [y,m,d]=s.split('-');return `${d}/${m}/${y}`;}
 function statusClass(s){return ({'Pronto':'pronto','Entregue':'entregue','Em produção':'producao','Aguardando':'pendente'})[s]||'';}
-function orderCard(o){return `<div class="card"><div class="cardtop"><div><div class="cardtitle">#${esc(o.number||'—')} · ${esc(o.client||'Sem nome')}</div><div class="meta">${esc(o.type||'Caixa personalizada')} • Entrega: ${fmtDate(o.due)}<br>${esc(o.city||'')}</div><span class="badge ${statusClass(o.status)}">${esc(o.status||'Aguardando')}</span></div><div class="money green">${brl(o.price)}</div></div><div class="meta">Recebido: <b class="financial-in">${brl(received(o))}</b> · Falta: <b class="financial-in">${brl(balance(o))}</b></div>${o.photos?.length?`<div>${o.photos.map(p=>`<img class="thumb" src="${typeof p==='string'?p:(p.data?.data||p.data||p.url||'')}" alt="Anexo" loading="lazy">`).join('')}</div>`:''}<div class="actions"><button class="secondary" onclick="viewOrder('${o.id}')">Detalhes</button><button class="secondary" onclick="editOrder('${o.id}')">Editar</button><button class="secondary" onclick="addPayment('${o.id}')">＋ Pagamento</button><button class="secondary" onclick="advanceStatus('${o.id}')">Mudar status</button></div></div>`;}
+function orderCard(o){return `<div class="card"><div class="cardtop"><div><div class="cardtitle">#${esc(o.number||'—')} · ${esc(o.client||'Sem nome')}</div><div class="meta">${esc(o.type||'Caixa personalizada')} • Entrega: ${fmtDate(o.due)}<br>${esc(o.city||'')}</div><span class="badge ${statusClass(o.status)}">${esc(o.status||'Aguardando')}</span></div><div class="money green">${brl(o.price)}</div></div><div class="meta">Recebido: <b class="financial-in">${brl(received(o))}</b> · Falta: <b class="financial-in">${brl(balance(o))}</b></div>${o.photos?.length?`<div>${o.photos.map(p=>`<img class="thumb" src="${typeof p==='string'?p:(p.data?.data||p.data||p.url||'')}" alt="Anexo" loading="lazy">`).join('')}</div>`:''}<div class="actions"><button class="secondary" onclick="viewOrder('${o.id}')">Detalhes</button><button class="secondary" onclick="editOrder('${o.id}')">Editar</button><button class="secondary" onclick="addPayment('${o.id}')">＋ Pagamento</button><button class="secondary" onclick="advanceStatus('${o.id}')">Mudar status</button><button class="danger" onclick="deleteOrder('${o.id}')">Excluir pedido</button></div></div>`;}
+async function deleteOrder(id){
+ const order=orders().find(o=>String(o.id)===String(id));
+ if(!order)return;
+ const label=`Pedido #${order.number||'—'} · ${order.client||'Cliente'}`;
+ if(!confirm(`Excluir definitivamente ${label}?
+
+O pedido, os pagamentos e as fotos vinculadas serão removidos. Esta ação não pode ser desfeita. Faça um backup antes, se necessário.`))return;
+ // Primeiro confirma a exclusão na nuvem; só depois remove a cópia local.
+ if(currentUser&&supabaseClient){
+  const {error}=await supabaseClient.from('app_records').delete().eq('user_id',currentUser.id).eq('record_id',String(id));
+  if(error){alert('Não foi possível excluir na nuvem. O pedido foi mantido neste aparelho. Detalhe: '+error.message);return;}
+ }
+ await delLocal(id);
+ await refresh();
+ alert(`${label} foi excluído.`);
+}
 function render(){
  const period=document.getElementById('iasCurrentPeriod');if(period)period.textContent=weekLabel(dashboardWeekDate);const picker=document.getElementById('iasWeekPicker');if(picker)picker.value=dashboardWeekDate;refreshNoticeBadge();
 document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
@@ -868,6 +884,19 @@ function renderCharts(range='8w',scope='loja'){
  const maxWeek=Math.max(1,...weeks.flatMap(w=>[w.sales,w.expenses,w.costs]));
  const chartMonths=weeks.map(w=>`<div class="month-col"><div class="month-bars"><div class="month-bar" title="Vendas ${brl(w.sales)}" style="height:${Math.max(w.sales?3:0,w.sales/maxWeek*112)}px;background:#b7791f"></div><div class="month-bar" title="Custos dos pedidos ${brl(w.costs)}" style="height:${Math.max(w.costs?3:0,w.costs/maxWeek*112)}px;background:#537ca5"></div><div class="month-bar" title="Despesas pagas ${brl(w.expenses)}" style="height:${Math.max(w.expenses?3:0,w.expenses/maxWeek*112)}px;background:#c62838"></div></div><div class="month-label">${w.label}</div><div class="small">${brl(w.net)}</div></div>`).join('');
  const orderRows=scopedOrders.slice().sort((a,b)=>(b.created||'').localeCompare(a.created||'')).slice(0,15).map(o=>{const price=Number(o.price||0),cost=costs(o),gross=price-cost,pct=price?gross/price*100:0;return `<div class="card"><div class="cardtop"><div><b>#${esc(o.number||'—')} · ${esc(o.client||'Cliente')}</b><div class="meta">Venda ${brl(price)} · Custo cadastrado ${brl(cost)}</div></div><div class="money ${gross<0?'redtext':'green'}">${brl(gross)}</div></div><div class="chart-track" style="margin-top:10px"><div class="chart-fill" style="width:${Math.max(0,Math.min(100,pct))}%;background:${gross<0?'#c62838':'#16845b'}"></div></div><div class="meta">Margem bruta estimada: ${fmtPct(pct)} · Não inclui rateio de despesas gerais.</div></div>`;}).join('')||'<div class="empty">Não há pedidos no período selecionado.</div>';
+ const statusCounts={'Aguardando':0,'Em produção':0,'Pronto':0,'Entregue':0};
+ scopedOrders.forEach(o=>{const st=o.status||'Aguardando';statusCounts[st]=(statusCounts[st]||0)+1;});
+ const overdueOrders=scopedOrders.filter(o=>o.status!=='Entregue'&&o.due&&o.due<dateNow());
+ const outstanding=scopedOrders.reduce((s,o)=>s+Math.max(0,balance(o)),0);
+ const avgTicket=scopedOrders.length?revenue/scopedOrders.length:0;
+ const clientMap={};scopedOrders.forEach(o=>{const n=String(o.client||'Cliente sem nome').trim();clientMap[n]=(clientMap[n]||0)+Number(o.price||0);});
+ const topClients=Object.entries(clientMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
+ const maxClient=Math.max(1,...topClients.map(x=>x[1]));
+ const clientRows=topClients.map(([name,value])=>`<div class="chart-row"><div><b>${esc(name)}</b></div><div class="chart-track"><div class="chart-fill" style="width:${value/maxClient*100}%;background:#537ca5"></div></div><div style="text-align:right"><b>${brl(value)}</b></div></div>`).join('')||'<div class="empty">Ainda não há vendas por cliente neste período.</div>';
+ const statusRows=Object.entries(statusCounts).map(([name,count])=>`<div class="chart-row"><div><b>${esc(name)}</b></div><div class="chart-track"><div class="chart-fill" style="width:${scopedOrders.length?count/scopedOrders.length*100:0}%;background:${name==='Entregue'?'#16845b':name==='Em produção'?'#537ca5':name==='Pronto'?'#b7791f':'#c62838'}"></div></div><div style="text-align:right"><b>${count}</b></div></div>`).join('');
+ const averageWeekly=revenue/weekCount;
+ const monthlyProjection=averageWeekly*4.33;
+ const managementInsight= !scopedOrders.length ? 'Cadastre pedidos para gerar análises de desempenho.' : netMargin<0 ? 'Atenção: o resultado estimado está negativo. Revise custos dos pedidos e despesas.' : expenseRatio>25 ? 'As despesas gerais representam mais de 25% das vendas neste período. Revise as categorias com maior participação.' : overdueOrders.length ? `Existem ${overdueOrders.length} pedido(s) com entrega atrasada. Priorize a produção e atualize os prazos.` : 'O resultado está positivo no período. Continue registrando todos os custos para manter a margem confiável.';
  const scopeButtons=`<div class="row" style="margin-bottom:12px"><button class="${scope==='loja'?'':'secondary'}" onclick="renderCharts('${range}','loja')">🏪 Loja</button><button class="${scope==='pessoal'?'':'secondary'}" onclick="renderCharts('${range}','pessoal')">👤 Pessoal</button></div>`;
  app.innerHTML=`<h2>Gráficos e análise financeira</h2>${scopeButtons}
  <div class="toolbar"><label class="small" for="chartRange" style="align-self:center">Período</label><select id="chartRange" onchange="renderCharts(this.value,'${scope}')"><option value="8w" ${range==='8w'?'selected':''}>Últimas 8 semanas</option><option value="12w" ${range==='12w'?'selected':''}>Últimas 12 semanas</option><option value="26w" ${range==='26w'?'selected':''}>Últimas 26 semanas</option></select></div>
@@ -876,6 +905,11 @@ function renderCharts(range='8w',scope='loja'){
  <div class="card section"><h3>Vendas, custos e despesas por semana</h3><div class="chart-legend"><span><i class="dot" style="background:#b7791f"></i>Vendas</span><span><i class="dot" style="background:#537ca5"></i>Custos dos pedidos</span><span><i class="dot" style="background:#c62838"></i>Despesas pagas</span></div><div class="chart-month">${chartMonths}</div><p class="small">O valor abaixo de cada semana é o resultado estimado: vendas menos custos cadastrados e despesas pagas.</p></div>
  <div class="card section"><h3>Onde você está gastando mais?</h3><p class="small">Participação de cada categoria no total de despesas pagas: ${brl(expenseTotal)}. As contas apenas lançadas e ainda não pagas não entram neste gráfico.</p>${categoryBars}<p class="small">Total lançado no período, incluindo contas pendentes: <b>${brl(launchedTotal)}</b>.</p></div>
  <div class="section"><h3>Margem estimada por pedido</h3><p class="small">Mostra a diferença entre o preço do pedido e o custo informado nele. Não inclui rateio das despesas gerais da loja.</p>${orderRows}</div>
+ <div class="stats section"><div class="stat"><div class="label">Pedidos no período</div><div class="value">${scopedOrders.length}</div></div><div class="stat"><div class="label">Ticket médio</div><div class="value">${brl(avgTicket)}</div></div><div class="stat"><div class="label">Saldo a receber</div><div class="value">${brl(outstanding)}</div></div><div class="stat"><div class="label">Pedidos atrasados</div><div class="value ${overdueOrders.length?'redtext':'green'}">${overdueOrders.length}</div></div></div>
+ <div class="card section"><h3>Gestão operacional · status dos pedidos</h3>${statusRows}<p class="small">Distribuição dos pedidos criados nas últimas ${weekCount} semanas.</p></div>
+ <div class="card section"><h3>Clientes com maior faturamento</h3>${clientRows}<p class="small">Ranking calculado pelo valor total dos pedidos no período.</p></div>
+ <div class="card section"><h3>Projeção de faturamento</h3><div class="stats"><div class="stat"><div class="label">Média semanal</div><div class="value">${brl(averageWeekly)}</div></div><div class="stat"><div class="label">Projeção mensal</div><div class="value">${brl(monthlyProjection)}</div></div></div><p class="small">Estimativa simples: média semanal do período × 4,33. Não é garantia de receita futura; depende de demanda, capacidade e pedidos fechados.</p></div>
+ <div class="card section"><h3>Diagnóstico de gestão</h3><p>${esc(managementInsight)}</p><p class="small">Atenção: lucro e margem são estimativas. Custos não cadastrados, retiradas e despesas lançadas fora do período podem alterar o resultado real.</p></div>
  <button class="secondary" style="width:100%" onclick="setTab('despesas')">＋ Registrar despesa / material</button>`;
 }
 let cutParts=[];
