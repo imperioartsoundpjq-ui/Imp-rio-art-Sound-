@@ -599,12 +599,12 @@ function renderHome(){
  const manualAll=manualCashSums('loja');
  // O painel financeiro considera apenas o período ativo após o reinício; os pedidos antigos continuam preservados.
  const revenue=currentOrders.reduce((s,o)=>s+Number(o.price||0),0);
- // O indicador 'Recebido' representa somente pagamentos vinculados aos pedidos.
- // Entradas avulsas do caixa permanecem no fluxo de caixa, mas não reduzem a dívida do cliente.
+ // O total recebido do painel inclui pagamentos dos pedidos e entradas lançadas no caixa.
+ // O saldo a receber é calculado diretamente sobre os totais: vendas menos recebido.
  const excludedPayments=financeExcludedPayments('loja');
  const orderReceived=o=>(o.payments||[]).reduce((sum,p,i)=>sum+(excludedPayments.has(`pay-${o.id}-${i}`)?0:Number(p.amount||0)),0);
- const paid=currentOrders.reduce((sum,o)=>sum+orderReceived(o),0);
- const pending=currentOrders.reduce((sum,o)=>sum+Math.max(0,Number(o.price||0)-orderReceived(o)),0);
+ const paid=currentOrders.reduce((sum,o)=>sum+orderReceived(o),0)+manualAll.in;
+ const pending=Math.max(0,revenue-paid);
  const expenseSum=allExpenses.reduce((s,e)=>s+Number(e.amount||0),0)+manualAll.out;
  const estimated=currentOrders.reduce((s,o)=>s+profit(o),0)-expenseSum+manualAll.in;
  const active=allOrders.filter(o=>o.status!=='Entregue'&&o.status!=='Pronto').length;
@@ -630,8 +630,8 @@ function renderHome(){
  <div class="ias-kpis">
  <div class="ias-kpi kpi-sales"><div class="ias-kpi-top"><span>▣</span><label>Vendas totais</label></div><strong>${brl(revenue)}</strong><small>${allOrders.length} pedidos cadastrados</small></div>
  <div class="ias-kpi kpi-expenses"><div class="ias-kpi-top"><span>▤</span><label>Despesas da loja</label></div><strong>${brl(expenseSum)}</strong><small>Total de despesas lançadas</small></div>
- <div class="ias-kpi kpi-received"><div class="ias-kpi-top"><span>▣</span><label>Recebido</label></div><strong>${brl(paid)}</strong><small>Pagamentos vinculados aos pedidos</small></div>
- <div class="ias-kpi kpi-pending"><div class="ias-kpi-top"><span>◷</span><label>A receber</label></div><strong>${brl(pending)}</strong><small>Vendas menos pagamentos dos pedidos</small></div>
+ <div class="ias-kpi kpi-received"><div class="ias-kpi-top"><span>▣</span><label>Recebido</label></div><strong>${brl(paid)}</strong><small>Pagamentos e entradas registradas no caixa</small></div>
+ <div class="ias-kpi kpi-pending"><div class="ias-kpi-top"><span>◷</span><label>A receber</label></div><strong>${brl(pending)}</strong><small>Total de vendas menos total recebido</small></div>
  <div class="ias-kpi kpi-sales"><div class="ias-kpi-top"><span>✓</span><label>Pedidos concluídos</label></div><strong>${delivered}</strong><small>Prontos ou entregues</small></div>
  <div class="ias-kpi kpi-received"><div class="ias-kpi-top"><span>⚙</span><label>Em andamento</label></div><strong>${active}</strong><small>Pedidos não concluídos</small></div>
  <div class="ias-kpi kpi-expenses"><div class="ias-kpi-top"><span>!</span><label>Pedidos atrasados</label></div><strong>${overdue}</strong><small>Entrega já vencida</small></div>
