@@ -494,35 +494,41 @@ function allRecords(){return new Promise((resolve,reject)=>{const r=db.transacti
 function putLocal(x){return new Promise((resolve,reject)=>{const r=db.transaction(STORE,'readwrite').objectStore(STORE).put(x);r.onsuccess=resolve;r.onerror=()=>reject(r.error);});}
 function delLocal(id){return new Promise((resolve,reject)=>{const r=db.transaction(STORE,'readwrite').objectStore(STORE).delete(id);r.onsuccess=resolve;r.onerror=()=>reject(r.error);});}
 async function putRecord(x){await putLocal(x);if(currentUser&&supabaseClient){const {error}=await supabaseClient.from('app_records').upsert({user_id:currentUser.id,record_id:String(x.id),data:x},{onConflict:'user_id,record_id'});if(error)alert('Salvo neste aparelho, mas a nuvem não foi atualizada: '+error.message);} }
-async function delRecord(id){await delLocal(id);if(currentUser&&supabaseClient){const {error}=await supabaseClient.from('app_records').delete().eq('user_id',currentUser.id).eq('record_id',String(id));if(error)alert('Excluído neste aparelho, mas não na nuvem: '+error.message);} }
+async function markRecordDeleted(id){
+ const marker={id:'__deleted__:'+String(id),kind:'sync_tombstone',targetId:String(id),deletedAt:new Date().toISOString()};
+ if(currentUser&&supabaseClient){const {error}=await supabaseClient.from('app_records').upsert({user_id:currentUser.id,record_id:String(marker.id),data:marker},{onConflict:'user_id,record_id'});if(error)throw error;}
+ await putLocal(marker);await delLocal(id);
+}
+async function delRecord(id){try{await markRecordDeleted(id);}catch(e){alert('Não foi possível sincronizar a exclusão. O registro foi mantido para evitar reaparecer incorretamente. '+e.message);return;}await refresh();}
 async function refresh(){records=await allRecords();render();}
 async function syncFromCloud(){
  if(!currentUser||!supabaseClient||syncBusy)return;
  syncBusy=true;
  try{
-  // Nunca limpar o IndexedDB durante uma sincronização: uma resposta vazia/incompleta
-  // da nuvem não pode apagar pedidos, despesas ou projetos deste aparelho.
   const localBefore=await allRecords();
   const {data,error}=await supabaseClient.from('app_records').select('record_id,data').eq('user_id',currentUser.id);
   if(error)throw error;
   const cloudRows=Array.isArray(data)?data:[];
   const cloudRecords=cloudRows.map(row=>row&&row.data).filter(x=>x&&x.id!==undefined&&x.id!==null);
-  const cloudIds=new Set(cloudRecords.map(x=>String(x.id)));
-  // Mescla por ID: registros remotos atualizam os correspondentes, enquanto
-  // registros locais ausentes na resposta permanecem intactos.
-  for(const remote of cloudRecords) await putLocal(remote);
-  // Recupera na nuvem registros locais que não estavam nela (inclusive quando
-  // a consulta retorna zero linhas), sem excluir nenhum registro existente.
-  const missingLocal=localBefore.filter(x=>x&&x.id!==undefined&&!cloudIds.has(String(x.id)));
+  const tombstones=cloudRecords.filter(x=>x.kind==='sync_tombstone');
+  const deletedIds=new Set(tombstones.map(x=>String(x.targetId)));
+  // Tombstones são registros de controle permanentes: impedem que cópias antigas
+  // de outro aparelho ressuscitem dados já excluídos.
+  for(const id of deletedIds) await delLocal(id);
+  for(const marker of tombstones) await putLocal(marker);
+  const activeCloud=cloudRecords.filter(x=>x.kind!=='sync_tombstone'&&!deletedIds.has(String(x.id)));
+  const cloudIds=new Set(activeCloud.map(x=>String(x.id)));
+  for(const remote of activeCloud) await putLocal(remote);
+  // Só envia registros locais ausentes se não houver tombstone explícito.
+  const missingLocal=localBefore.filter(x=>x&&x.id!==undefined&&x.kind!=='sync_tombstone'&&!cloudIds.has(String(x.id))&&!deletedIds.has(String(x.id)));
   for(const local of missingLocal){
    const {error:upsertError}=await supabaseClient.from('app_records').upsert({user_id:currentUser.id,record_id:String(local.id),data:local},{onConflict:'user_id,record_id'});
    if(upsertError)throw upsertError;
   }
   await refresh();
  }catch(e){
-  console.error(e);
-  await refresh();
-  app.insertAdjacentHTML('afterbegin','<div class="card"><h2>Sincronização pendente</h2><p class="small">Seus dados locais foram preservados. Confira a conexão e tente sincronizar novamente.</p><p class="small">'+esc(e.message||e)+'</p><button onclick="syncFromCloud()">Tentar novamente</button></div>');
+  console.error(e);await refresh();
+  app.insertAdjacentHTML('afterbegin','<div class="card"><h2>Sincronização pendente</h2><p class="small">Os dados locais foram preservados. Confira a conexão e tente novamente.</p><p class="small">'+esc(e.message||e)+'</p><button onclick="syncFromCloud()">Tentar novamente</button></div>');
  }finally{syncBusy=false;}
 }
 function scheduleCloudSync(){if(syncTimer)clearTimeout(syncTimer);syncTimer=setTimeout(()=>syncFromCloud(),600);} 
@@ -531,7 +537,14 @@ async function signUp(){const form=document.getElementById('authForm');if(!form.
 async function startCloudApp(){document.querySelector('.nav').style.display='flex';await syncFromCloud();if(!cloudChannel){cloudChannel=supabaseClient.channel('app-records-'+currentUser.id).on('postgres_changes',{event:'*',schema:'public',table:'app_records',filter:'user_id=eq.'+currentUser.id},()=>scheduleCloudSync()).subscribe();}window.addEventListener('focus',scheduleCloudSync);}
 
 function orders(){return records.filter(x=>x.kind==='order').sort((a,b)=>(b.created||'').localeCompare(a.created||''));}
-function expenses(){return records.filter(x=>x.kind==='expense').sort((a,b)=>(b.date||'').localeCompare(a.date||''));}
+// Reinícios financeiros arquivam os lançamentos antigos sem apagar pedidos ou registros.
+function financeResetMarkers(scope){return records.filter(x=>x.kind==='finance_reset'&&(!scope||(x.scope||'loja')===scope));}
+function financeExcludedIds(scope){const out=new Set();financeResetMarkers(scope).forEach(m=>(m.excludeRecordIds||[]).forEach(id=>out.add(String(id))));return out;}
+function financeExcludedPayments(scope='loja'){const out=new Set();financeResetMarkers(scope).forEach(m=>(m.excludePaymentKeys||[]).forEach(id=>out.add(String(id))));return out;}
+function financeExcludedOrders(){const out=new Set();financeResetMarkers('loja').forEach(m=>(m.excludeOrderIds||[]).forEach(id=>out.add(String(id))));return out;}
+function financeOrders(){const excluded=financeExcludedOrders();return orders().filter(o=>!excluded.has(String(o.id)));}
+function allExpenses(){return records.filter(x=>x.kind==='expense').sort((a,b)=>(b.date||'').localeCompare(a.date||''));}
+function expenses(){const excludedByScope={loja:financeExcludedIds('loja'),pessoal:financeExcludedIds('pessoal')};return allExpenses().filter(e=>!excludedByScope[e.scope==='pessoal'?'pessoal':'loja'].has(String(e.id)));}
 function received(o){return (o.payments||[]).reduce((s,p)=>s+Number(p.amount||0),0);}
 function costs(o){return Number(o.cost||0);}
 function balance(o){return Number(o.price||0)-received(o);}
@@ -546,14 +559,9 @@ async function deleteOrder(id){
  if(!confirm(`Excluir definitivamente ${label}?
 
 O pedido, os pagamentos e as fotos vinculadas serão removidos. Esta ação não pode ser desfeita. Faça um backup antes, se necessário.`))return;
- // Primeiro confirma a exclusão na nuvem; só depois remove a cópia local.
- if(currentUser&&supabaseClient){
-  const {error}=await supabaseClient.from('app_records').delete().eq('user_id',currentUser.id).eq('record_id',String(id));
-  if(error){alert('Não foi possível excluir na nuvem. O pedido foi mantido neste aparelho. Detalhe: '+error.message);return;}
- }
+ // Marca pedido e agendamentos vinculados como excluídos na nuvem.
  const linkedSchedules=records.filter(x=>x.kind==='service_schedule'&&String(x.orderId)===String(id));
- for(const schedule of linkedSchedules){if(currentUser&&supabaseClient){const {error}=await supabaseClient.from('app_records').delete().eq('user_id',currentUser.id).eq('record_id',String(schedule.id));if(error){alert('O pedido foi excluído, mas um agendamento vinculado não pôde ser removido: '+error.message);}}await delLocal(schedule.id);}
- await delLocal(id);
+ try{for(const schedule of linkedSchedules)await markRecordDeleted(schedule.id);await markRecordDeleted(id);}catch(error){alert('Não foi possível sincronizar a exclusão. O pedido foi mantido. '+error.message);return;}
  await refresh();
  alert(`${label} foi excluído.`);
 }
@@ -587,14 +595,14 @@ function notificationItems(){
 function refreshNoticeBadge(){const el=document.getElementById('iasNoticeCount');if(!el)return;const n=notificationItems().length;el.textContent=n>99?'99+':String(n);el.style.display=n?'grid':'none';}
 function openNotifications(){const items=notificationItems();const old=document.getElementById('iasNoticePanel');if(old){old.remove();return;}const panel=document.createElement('div');panel.id='iasNoticePanel';panel.className='ias-notice-panel';panel.innerHTML=`<div class="ias-notice-head"><b>Notificações e alertas</b><button type="button" class="secondary" onclick="document.getElementById('iasNoticePanel').remove()">Fechar ✕</button></div>${items.map((x,i)=>`<button type="button" class="ias-notice-item ${x.priority?'soon':'late'}" onclick="document.getElementById('iasNoticePanel').remove();setTab('${x.tab}')"><span><b>${esc(x.type)}</b><strong>${esc(x.title)}</strong><small>${esc(x.detail)}</small></span><time>${fmtDate(x.date)}</time></button>`).join('')||'<div class="ias-notice-empty">Nenhuma dívida ou entrega atrasada ou com vencimento nos próximos 7 dias.</div>'}`;document.body.appendChild(panel);}
 function renderHome(){
- const allOrders=orders(),allExpenses=expenses().filter(e=>(e.scope||'loja')==='loja');
+ const allOrders=orders(),currentOrders=financeOrders(),allExpenses=expenses().filter(e=>(e.scope||'loja')==='loja');
  const manualAll=manualCashSums('loja');
- // KPIs gerais consolidam pedidos, despesas e movimentações avulsas do caixa.
- const revenue=allOrders.reduce((s,o)=>s+Number(o.price||0),0);
- const paid=allOrders.reduce((s,o)=>s+received(o),0)+manualAll.in;
- const pending=allOrders.reduce((s,o)=>s+Math.max(0,balance(o)),0);
+ // O painel financeiro considera apenas o período ativo após o reinício; os pedidos antigos continuam preservados.
+ const revenue=currentOrders.reduce((s,o)=>s+Number(o.price||0),0);
+ const paid=cashTotals('loja','0000-01-01',dateNow()).ins;
+ const pending=currentOrders.reduce((s,o)=>s+Math.max(0,balance(o)),0);
  const expenseSum=allExpenses.reduce((s,e)=>s+Number(e.amount||0),0)+manualAll.out;
- const estimated=allOrders.reduce((s,o)=>s+profit(o),0)-expenseSum+manualAll.in;
+ const estimated=currentOrders.reduce((s,o)=>s+profit(o),0)-expenseSum+manualAll.in;
  const active=allOrders.filter(o=>o.status!=='Entregue'&&o.status!=='Pronto').length;
  const delivered=allOrders.filter(o=>o.status==='Entregue'||o.status==='Pronto').length;
  const today=dateNow(), overdue=allOrders.filter(o=>o.status!=='Entregue'&&o.due&&o.due<today).length;
@@ -603,7 +611,7 @@ function renderHome(){
  const anchor=mondayOf(dashboardWeekDate),weeks=[];
  for(let i=7;i>=0;i--){const a=new Date(anchor);a.setDate(a.getDate()-i*7);const b=new Date(a);b.setDate(b.getDate()+6);weeks.push({start:isoDate(a),end:isoDate(b),label:`${String(a.getDate()).padStart(2,'0')}/${String(a.getMonth()+1).padStart(2,'0')}`,income:0,out:0});}
  const weekFor=value=>{const d=dateObj(value);if(!d)return null;const key=isoDate(mondayOf(isoDate(d)));return weeks.find(w=>w.start===key);};
- allOrders.forEach(o=>(o.payments||[]).forEach(pay=>{const w=weekFor(pay.date||o.date||o.created);if(w)w.income+=Number(pay.amount||0);}));
+ cashRows('loja','0000-01-01',dateNow()).filter(x=>x.direction==='entrada'&&x.source==='Pedido').forEach(pay=>{const w=weekFor(pay.date);if(w)w.income+=Number(pay.amount||0);});
  manualAll.rows.forEach(x=>{const w=weekFor(x.date);if(w){if(x.direction==='entrada')w.income+=Number(x.amount||0);else w.out+=Number(x.amount||0);}});
  allExpenses.filter(e=>e.status==='paga'||!e.status).forEach(e=>{const w=weekFor(e.paidDate||e.date||e.created);if(w)w.out+=Number(e.amount||0);});
  const max=Math.max(1,...weeks.flatMap(x=>[x.income,x.out]));
@@ -724,11 +732,11 @@ function renderFinanceHistory(status='paga'){
  app.innerHTML=`<h2>Despesas realizadas</h2><p class="small">Despesas pagas e saídas do período ainda aberto. Após fechar o mês, os lançamentos saem desta lista e ficam disponíveis em Caixa da loja → Arquivo de meses fechados.</p><div class="stats"><div class="stat"><div class="label">Total pago / saídas</div><div class="value redtext">${brl(total)}</div></div><div class="stat"><div class="label">Lançamentos</div><div class="value">${list.length+manualOut.length}</div></div></div>${[...expenseCards,...cashCards].join('')||'<div class="empty">Nenhuma despesa paga encontrada.</div>'}<button class="secondary" onclick="setTab('financeiro')">← Voltar ao financeiro</button>`;
 }
 function renderReceivables(){
- const list=orders().filter(o=>balance(o)>0);const total=list.reduce((a,o)=>a+balance(o),0);
+ const list=financeOrders().filter(o=>balance(o)>0);const total=list.reduce((a,o)=>a+balance(o),0);
  app.innerHTML=`<h2>Contas a receber</h2><p class="small">Valores ainda pendentes dos pedidos. Os pagamentos registrados em cada pedido reduzem automaticamente o saldo.</p><div class="stats"><div class="stat"><div class="label">Total a receber</div><div class="value green">${brl(total)}</div></div><div class="stat"><div class="label">Clientes com saldo</div><div class="value">${list.length}</div></div></div>${list.map(o=>`<div class="card"><div class="cardtop"><div><b>${esc(o.client||'Sem nome')} · Pedido #${esc(o.number||'—')}</b><div class="meta">Valor: ${brl(o.price)} · Recebido: ${brl(received(o))}</div></div><b class="money green">${brl(balance(o))}</b></div><div class="actions"><button onclick="addPayment('${o.id}')">＋ Registrar recebimento</button><button class="secondary" onclick="viewOrder('${o.id}')">Ver pedido</button></div></div>`).join('')||'<div class="empty">Nenhum valor pendente para receber.</div>'}<button class="secondary" onclick="setTab('financeiro')">← Voltar ao financeiro</button>`;
 }
 function renderFinancialAccounts(){
- const rows=records.filter(x=>x.kind==='cash_balance');
+ const rows=records.filter(x=>x.kind==='cash_balance'&&!financeExcludedIds(x.scope||'loja').has(String(x.id)));
  const shop=rows.find(x=>(x.scope||'loja')==='loja'),personal=rows.find(x=>x.scope==='pessoal');
  app.innerHTML=`<h2>Contas financeiras</h2><p class="small">Saldos informados para cada caixa. Loja e pessoal permanecem independentes. Esta área não cadastra contas a pagar nem despesas.</p><div class="grid2"><div class="card"><h3>Caixa da loja</h3><div class="value green">${brl(shop?.amount||0)}</div><p class="small">Saldo disponível informado</p><button class="secondary" onclick="setTab('despesas')">Atualizar saldo da loja</button></div><div class="card"><h3>Caixa pessoal</h3><div class="value green">${brl(personal?.amount||0)}</div><p class="small">Saldo disponível informado</p><button class="secondary" onclick="renderExpenses('pessoal')">Atualizar saldo pessoal</button></div></div><p class="small">A edição do saldo continua no formulário de saldo disponível já existente, sem criar novos registros ou alterar o banco.</p><button class="secondary" onclick="setTab('financeiro')">← Voltar ao financeiro</button>`;
 }
@@ -876,7 +884,7 @@ function shareQuote(){if(!document.getElementById('quoteForm').reportValidity())
 function printQuote(){if(!document.getElementById('quoteForm').reportValidity())return;if(!quoteItems.length){alert('Adicione itens antes de imprimir.');return;}const f=quoteFormData(),subtotal=quoteSum(),discount=Math.max(0,Number(f.discount||0)),total=Math.max(0,subtotal-discount);const rows=quoteItems.map(x=>`<tr><td>${esc(x.category)}</td><td>${esc(x.name)}</td><td>${x.qty}</td><td>${brl(x.price)}</td><td>${brl(x.qty*x.price)}</td></tr>`).join('');const w=window.open('','_blank');if(!w){alert('Permita pop-ups para imprimir o orçamento.');return;}w.document.write(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><title>Orçamento ${esc(f.number)}</title><style>body{font:14px Arial,sans-serif;color:#222;max-width:850px;margin:30px auto;padding:0 20px}header{border-bottom:3px solid #d7ad55;padding-bottom:15px}h1{margin:0;color:#a51f2b}small{color:#555}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{border-bottom:1px solid #ddd;padding:10px;text-align:left}th{background:#f3f3f3}.total{text-align:right;font-size:22px;font-weight:bold;margin-top:20px}.foot{margin-top:30px;color:#555}</style><header style="display:flex;align-items:center;gap:18px"><img src="${LOGO_DATA}" alt="Logo Império Art Sound" style="width:150px;max-height:120px;object-fit:contain;background:#000;border-radius:8px"><div><h1>IMPÉRIO ART SOUND</h1><b>ORÇAMENTO ${esc(f.number)}</b><br><small>Data: ${fmtDate(f.date)} · Validade: ${esc(f.validity||7)} dias</small></div></header><p><b>Cliente:</b> ${esc(f.client)} ${f.city?'· '+esc(f.city):''}<br><b>Projeto:</b> ${esc(f.project||'Som automotivo personalizado')}</p><table><thead><tr><th>Categoria</th><th>Descrição</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table><p style="text-align:right">Subtotal: ${brl(subtotal)}<br>Desconto: ${brl(discount)}</p><div class="total">TOTAL: ${brl(total)}</div><p><b>Pagamento:</b> ${esc(f.paymentTerms||'A combinar')}<br><b>Prazo:</b> ${esc(f.delivery||'A combinar')}</p>${f.notes?`<p><b>Observações:</b> ${esc(f.notes)}</p>`:''}<div class="foot">Obrigado pela preferência!<br>IMPÉRIO ART SOUND</div><script>window.onload=()=>window.print()<\/script></html>`);w.document.close();}
 
 function renderCharts(range='8w',scope='loja'){
- const allOrders=orders(), allExpenses=expenses();
+ const allOrders=financeOrders(), allExpenses=expenses();
  const now=new Date(); now.setHours(0,0,0,0);
  const weekCount=range==='12w'?12:range==='26w'?26:8;
  let from=mondayOf(isoDate(now));from.setDate(from.getDate()-(weekCount-1)*7);
@@ -1273,10 +1281,10 @@ out.innerHTML=`${printSummary}<div class="row no-print" style="justify-content:f
 
 // CONTROLE DE CAIXA: movimentos manuais + recebimentos de pedidos + despesas efetivamente pagas.
 // Os lançamentos são registros independentes no mesmo armazenamento/sincronização existentes.
-function cashManual(){return records.filter(x=>x.kind==='cash_movement').sort((a,b)=>(b.date||'').localeCompare(a.date||''));}
+function cashManual(){const excludedByScope={loja:financeExcludedIds('loja'),pessoal:financeExcludedIds('pessoal')};return records.filter(x=>x.kind==='cash_movement'&&!excludedByScope[x.scope==='pessoal'?'pessoal':'loja'].has(String(x.id))).sort((a,b)=>(b.date||'').localeCompare(a.date||''));}
 function cashArchives(scope){return records.filter(x=>x.kind==='cash_month_archive'&&(!scope||(x.scope||'loja')===scope)).sort((a,b)=>(b.month||'').localeCompare(a.month||''));}
 function isCashMonthArchived(scope,date){if(!date)return false;const month=String(date).slice(0,7);return records.some(x=>x.kind==='cash_month_archive'&&x.month===month&&(x.scope||'loja')===(scope||'loja'));}
-function viewCashArchive(id){const a=records.find(x=>x.id===id&&x.kind==='cash_month_archive');if(!a)return;const lines=(a.rows||[]).map(x=>`${fmtDate(x.date)} | ${x.direction==='entrada'?'ENTRADA':'SAÍDA'} | ${x.description||x.category||'Movimentação'} | ${brl(x.amount)}`).join('\n');alert(`ARQUIVO ${a.scope==='pessoal'?'PESSOAL':'DA LOJA'} · ${a.month}\nEntradas: ${brl(a.income)}\nSaídas: ${brl(a.expenses)}\nResultado: ${brl(a.net)}\nSaldo inicial: ${brl(a.opening)}\nSaldo final contado: ${brl(a.counted)}\n\nMOVIMENTAÇÕES\n${lines||'Sem movimentações'}`);}
+function viewCashArchive(id){const a=records.find(x=>x.id===id&&x.kind==='cash_month_archive');if(!a)return;const lines=(a.rows||[]).map(x=>`${fmtDate(x.date)} | ${x.direction==='entrada'?'ENTRADA':x.direction==='pendente'?'PENDENTE':'SAÍDA'} | ${x.description||x.category||'Movimentação'} | ${brl(x.amount)}`).join('\n');alert(`ARQUIVO ${a.scope==='pessoal'?'PESSOAL':'DA LOJA'} · ${a.month}\nEntradas: ${brl(a.income)}\nSaídas: ${brl(a.expenses)}\nContas pendentes arquivadas: ${brl(a.pending||0)}\nResultado: ${brl(a.net)}\nSaldo inicial: ${brl(a.opening)}\nSaldo final contado: ${brl(a.counted)}\n\nMOVIMENTAÇÕES\n${lines||'Sem movimentações'}`);}
 // Movimentações avulsas do caixa também alimentam o financeiro geral e os relatórios.
 // Pagamentos de pedidos e despesas pagas continuam vindo de seus registros originais,
 // evitando criar um segundo lançamento para a mesma operação.
@@ -1291,9 +1299,12 @@ function cashRows(scope,from,to){
  const rows=[];
  // Entradas efetivamente recebidas nos pagamentos vinculados aos pedidos.
  if(scope==='loja'){
+  const excludedPayments=financeExcludedPayments('loja');
   orders().forEach(o=>(o.payments||[]).forEach((p,i)=>{
+   const paymentKey=`pay-${o.id}-${i}`;
+   if(excludedPayments.has(paymentKey))return;
    const d=p.date||o.date||o.created?.slice(0,10)||dateNow();
-   if(d>=from&&d<=to)rows.push({id:`pay-${o.id}-${i}`,date:d,direction:'entrada',description:`Pagamento pedido ${o.number||o.client||''}`,category:'Recebimento de pedido',amount:Number(p.amount||0),source:'Pedido'});
+   if(d>=from&&d<=to)rows.push({id:paymentKey,date:d,direction:'entrada',description:`Pagamento pedido ${o.number||o.client||''}`,category:'Recebimento de pedido',amount:Number(p.amount||0),source:'Pedido'});
   }));
  }
  // Saídas: somente contas marcadas como pagas, na data em que foram pagas.
@@ -1311,7 +1322,8 @@ function cashTotals(scope,from,to){
 // Saldo de abertura acumulado: usa o último fechamento anterior como ponto de controle;
 // soma as movimentações posteriores a ele. Sem fechamento anterior, usa o saldo-base cadastrado.
 function cashBalanceBefore(scope,beforeDate){
- const closures=records.filter(x=>x.kind==='cash_closure'&&(x.scope||'loja')===scope).map(x=>{
+ const excludedIds=financeExcludedIds(scope);
+ const closures=records.filter(x=>x.kind==='cash_closure'&&(x.scope||'loja')===scope&&!excludedIds.has(String(x.id))).map(x=>{
   let end=x.date||'';
   if(x.period==='month'&&/^\d{4}-\d{2}$/.test(end)){
    const [yy,mm]=end.split('-').map(Number);const last=new Date(yy,mm,0).getDate();end=`${yy}-${String(mm).padStart(2,'0')}-${String(last).padStart(2,'0')}`;
@@ -1319,7 +1331,7 @@ function cashBalanceBefore(scope,beforeDate){
   return {...x,endDate:end};
  }).filter(x=>x.endDate&&x.endDate<beforeDate).sort((a,b)=>b.endDate.localeCompare(a.endDate));
  const last=closures[0];
- let balance=last?Number(last.counted??last.expected??0):Number(records.find(x=>x.kind==='cash_balance'&&(x.scope||'loja')===scope)?.amount||0);
+ let balance=last?Number(last.counted??last.expected??0):Number(records.find(x=>x.kind==='cash_balance'&&(x.scope||'loja')===scope&&!excludedIds.has(String(x.id)))?.amount||0);
  const from=last?(()=>{const d=new Date(last.endDate+'T12:00:00');d.setDate(d.getDate()+1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})():'0000-01-01';
  if(from<beforeDate)balance+=cashTotals(scope,from,(()=>{const d=new Date(beforeDate+'T12:00:00');d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;})()).net;
  return balance;
@@ -1374,8 +1386,9 @@ function renderCashControl(){
  const day=cashTotals(scope,today,today),monthly=cashTotals(scope,monthStart,monthEnd);
  const dayOpening=cashBalanceBefore(scope,today),dayExpected=dayOpening+day.net;
  const opening=cashBalanceBefore(scope,monthStart),monthClosing=opening+monthly.net;
- const dayClose=records.find(x=>x.kind==='cash_closure'&&x.scope===scope&&x.period==='day'&&x.date===today);
- const monthClose=records.find(x=>x.kind==='cash_closure'&&x.scope===scope&&x.period==='month'&&x.date===month);
+ const excludedClosureIds=financeExcludedIds(scope);
+ const dayClose=records.find(x=>x.kind==='cash_closure'&&x.scope===scope&&x.period==='day'&&x.date===today&&!excludedClosureIds.has(String(x.id)));
+ const monthClose=records.find(x=>x.kind==='cash_closure'&&x.scope===scope&&x.period==='month'&&x.date===month&&!excludedClosureIds.has(String(x.id)));
  const dailyMap={};
  monthly.rows.forEach(x=>{const d=x.date||monthStart;if(!dailyMap[d])dailyMap[d]={date:d,ins:0,outs:0,count:0};if(x.direction==='entrada')dailyMap[d].ins+=Number(x.amount||0);else if(x.direction==='saida')dailyMap[d].outs+=Number(x.amount||0);dailyMap[d].count++;});
  if(!dailyMap[today]&&today>=monthStart&&today<=monthEnd)dailyMap[today]={date:today,ins:0,outs:0,count:0};
@@ -1384,7 +1397,7 @@ function renderCashControl(){
  .cash-simple{display:grid;gap:16px}.cash-simple .cash-panel{background:var(--panel,#171d28);border:1px solid var(--line,#394456);border-radius:16px;padding:16px;min-width:0}.cash-simple .cash-title{font-size:18px;font-weight:850;margin:0 0 12px}.cash-simple .cash-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.cash-simple .cash-kpi{background:rgba(255,255,255,.045);border:1px solid var(--line,#394456);border-radius:12px;padding:13px;min-width:0}.cash-simple .cash-kpi small{display:block;color:var(--muted,#aeb8c8);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}.cash-simple .cash-kpi strong{display:block;font-size:clamp(20px,3vw,27px);font-weight:900;margin-top:7px;overflow-wrap:anywhere;color:#fff}.cash-simple .cash-kpi.in strong{color:#35df8a}.cash-simple .cash-kpi.out strong{color:#ff6678}.cash-simple .cash-kpi.net strong{color:#54dca0}.cash-simple .cash-form{display:grid;grid-template-columns:1fr 1fr;gap:12px}.cash-simple .cash-form .wide{grid-column:1/-1}.cash-simple .cash-day{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line,#394456)}.cash-simple .cash-day:last-child{border-bottom:0}.cash-simple .cash-day strong{font-size:15px}.cash-simple .cash-day .cash-daynums{display:flex;gap:12px;flex-wrap:wrap;font-size:13px}.cash-simple .cash-daynums b{white-space:nowrap}.cash-simple .cash-muted{color:var(--muted,#aeb8c8);font-size:12px}.cash-simple .cash-close-result{font-size:14px;line-height:1.6;margin:8px 0 12px}.cash-simple .cash-list{display:grid;gap:8px}.cash-simple .cash-movement{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line,#394456)}.cash-simple .cash-movement:last-child{border-bottom:0}.cash-simple .cash-movement strong{overflow-wrap:anywhere}.cash-simple .cash-monthline{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:10px 0}.cash-simple .cash-monthline b{font-size:18px}.cash-simple .cash-monthgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.cash-simple button{min-height:42px}@media(max-width:600px){.cash-simple .cash-kpis,.cash-simple .cash-monthgrid{grid-template-columns:1fr 1fr}.cash-simple .cash-form{grid-template-columns:1fr}.cash-simple .cash-form .wide{grid-column:auto}.cash-simple .cash-day{align-items:flex-start;flex-direction:column}.cash-simple .cash-day .cash-daynums{gap:8px}}
  </style>`;
  app.innerHTML=`${cashCss}<div class="cash-simple">
- <div class="row" style="align-items:end;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:170px"><h2 style="margin:0">Caixa da loja</h2><div class="cash-muted">Registre somente o dinheiro que entrou e saiu.</div></div><div class="field" style="min-width:150px;margin:0"><label>Caixa</label><select id="cashScope" onchange="renderCashControl()"><option value="loja" ${scope==='loja'?'selected':''}>Loja</option><option value="pessoal" ${scope==='pessoal'?'selected':''}>Pessoal</option></select></div></div>
+ <div class="row" style="align-items:end;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:170px"><h2 style="margin:0">Caixa da loja</h2><div class="cash-muted">Registre somente o dinheiro que entrou e saiu.</div><button type="button" class="danger" style="margin-top:10px" onclick="resetFinanceNow()">Arquivar histórico e reiniciar contas</button></div><div class="field" style="min-width:150px;margin:0"><label>Caixa</label><select id="cashScope" onchange="renderCashControl()"><option value="loja" ${scope==='loja'?'selected':''}>Loja</option><option value="pessoal" ${scope==='pessoal'?'selected':''}>Pessoal</option></select></div></div>
  <section class="cash-panel"><h3 class="cash-title">Hoje · ${fmtDate(today)}</h3><div class="cash-kpis"><div class="cash-kpi in"><small>Entradas</small><strong>${brl(day.ins)}</strong></div><div class="cash-kpi out"><small>Saídas</small><strong>${brl(day.outs)}</strong></div><div class="cash-kpi net"><small>Total do dia</small><strong>${brl(day.net)}</strong></div></div></section>
  <section class="cash-panel"><h3 class="cash-title">Registrar movimentação</h3><form id="cashMovementForm" onsubmit="saveCashMovement(event,'${scope}');return false;"><div class="cash-form">
  <div class="field"><label>O que aconteceu?</label><select name="direction"><option value="entrada">Entrada de dinheiro</option><option value="saida">Saída de dinheiro</option></select></div>
@@ -1437,14 +1450,51 @@ async function closeCash(period,scope,date){
  }
  await refresh();renderCashControl();alert(isDay?'Fechamento diário salvo.':'Mês fechado e arquivado. O histórico foi preservado e o saldo contado será considerado na abertura do próximo mês.');
 }
+
+async function resetFinanceNow(){
+ const today=dateNow(),stamp=Date.now();
+ if(!confirm('REINICIAR O CONTROLE FINANCEIRO?\n\nOs saldos, entradas e saídas atuais serão arquivados separadamente. O novo caixa começará em R$ 0,00. Pedidos, clientes, fotos, desenhos e histórico de serviços NÃO serão apagados.'))return;
+ if(!confirm('Confirma o reinício? Recomendamos exportar um backup antes. Nenhum registro antigo será excluído; ele ficará arquivado para consulta.'))return;
+ const scopes=['loja','pessoal'];
+ for(const scope of scopes){
+  const excludedIds=financeExcludedIds(scope);
+  const activeExpenses=allExpenses().filter(e=>(e.scope||'loja')===scope&&!excludedIds.has(String(e.id)));
+  const activeManual=records.filter(x=>x.kind==='cash_movement'&&(x.scope||'loja')===scope&&!excludedIds.has(String(x.id)));
+  const activeClosures=records.filter(x=>x.kind==='cash_closure'&&(x.scope||'loja')===scope&&!excludedIds.has(String(x.id)));
+  const activeBalances=records.filter(x=>x.kind==='cash_balance'&&(x.scope||'loja')===scope&&!excludedIds.has(String(x.id)));
+  const rows=cashRows(scope,'0000-01-01','9999-12-31').map(x=>({...x}));
+  // Contas ainda não pagas também ficam no arquivo, mas não entram como saída de caixa.
+  activeExpenses.filter(e=>e.status!=='paga').forEach(e=>rows.push({id:`pending-${e.id}`,date:e.date||e.dueDate||today,direction:'pendente',description:e.description||'Conta pendente',category:e.category||'Despesa',amount:Number(e.amount||0),status:e.status||'pendente',source:'Conta não paga'}));
+  const income=rows.filter(x=>x.direction==='entrada').reduce((a,x)=>a+Number(x.amount||0),0);
+  const out=rows.filter(x=>x.direction==='saida').reduce((a,x)=>a+Number(x.amount||0),0);
+  const pending=rows.filter(x=>x.direction==='pendente').reduce((a,x)=>a+Number(x.amount||0),0);
+  const archive={id:`cash-archive-reset-${scope}-${stamp}`,kind:'cash_month_archive',scope,month:`ARQUIVO-ANTES-RESET-${today}`,archiveType:'finance_reset',income,expenses:out,net:income-out,opening:cashBalanceBefore(scope,today),expected:cashBalanceBefore(scope,today)+income-out,counted:0,pending,closedAt:new Date().toISOString(),notes:'Arquivo criado pelo reinício do controle financeiro. Registros originais preservados.',rows};
+  await putRecord(archive);
+  const excludeRecordIds=[...activeExpenses,...activeManual,...activeClosures,...activeBalances].map(x=>String(x.id));
+  const excludePaymentKeys=[];
+  const excludeOrderIds=[];
+  if(scope==='loja'){
+   orders().forEach(o=>{
+    const created=String(o.created||o.date||'').slice(0,10);
+    if(!created||created<=today)excludeOrderIds.push(String(o.id));
+    (o.payments||[]).forEach((p,i)=>excludePaymentKeys.push(`pay-${o.id}-${i}`));
+   });
+  }
+  const marker={id:`finance-reset-${scope}-${stamp}`,kind:'finance_reset',scope,effectiveDate:today,createdAt:new Date().toISOString(),excludeRecordIds,excludePaymentKeys,excludeOrderIds,openingBalance:0,archiveId:archive.id};
+  await putRecord(marker);
+ }
+ await refresh();
+ if(tab==='caixa')renderCashControl();else renderHome();
+ alert('Controle financeiro reiniciado. Os saldos atuais foram arquivados e o novo caixa começa em R$ 0,00. Pedidos, clientes e arquivos continuam preservados.');
+}
+
 async function deleteCashMovement(id,scope){if(confirm('Excluir esta movimentação manual?')){await delRecord(id);await refresh();renderCashControl();}}
 
 function renderBackup(){app.innerHTML=`<h2>Dados e segurança</h2><div class="card"><h3>Conta sincronizada</h3><p class="small">Conta: ${esc(currentUser?.email||'')}<br>Os registros são sincronizados com a nuvem. Para maior segurança, faça backup regularmente.</p><button class="secondary" onclick="signOut()">Sair da conta</button></div><div class="card"><h3>Backup completo</h3><p class="small">Exporta pedidos, pagamentos, despesas e anexos em um arquivo JSON. Guarde esse arquivo em local seguro. O backup é uma cópia adicional; não substitui a sincronização.</p><button onclick="exportBackup()">Exportar backup</button></div><div class="card"><h3>Restaurar backup</h3><p class="small">Importar um backup substitui os dados atuais. Exporte o estado atual antes de restaurar.</p><button class="secondary" onclick="document.getElementById('importFile').click()">Escolher arquivo de backup</button></div><div class="card"><h3>Resumo dos dados</h3><div class="meta">Pedidos: ${orders().length}<br>Despesas: ${expenses().length}<br>Anexos: ${orders().reduce((s,o)=>s+(o.photos||[]).length,0)} imagens</div><hr><button class="danger" onclick="clearAll()">Apagar todos os dados</button></div><p class="small">Privacidade: o acesso aos registros depende do login e das regras de segurança do banco. Proteja também o iPhone e o computador com senha.</p>`;
 }
 function exportBackup(){const blob=new Blob([JSON.stringify({app:'Imperio Art Sound',version:1,exportedAt:new Date().toISOString(),records},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`imperio-art-sound-backup-${dateNow()}.json`;a.click();URL.revokeObjectURL(a.href);}
 document.getElementById('importFile').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const parsed=JSON.parse(await file.text());if(!Array.isArray(parsed.records))throw Error('Arquivo inválido');if(!confirm('Isso substituirá todos os dados atuais. Continuar?'))return;const tx=db.transaction(STORE,'readwrite'),store=tx.objectStore(STORE);store.clear();parsed.records.forEach(x=>store.put(x));tx.oncomplete=async()=>{await refresh();alert('Backup restaurado.');};}catch(err){alert('Não foi possível importar: '+err.message)}finally{e.target.value='';}});
-async function clearAll(){if(!confirm('ATENÇÃO: apagar permanentemente todos os pedidos, pagamentos, despesas e anexos da nuvem e deste aparelho?'))return;if(!confirm('Confirme novamente: você exportou um backup?'))return;if(currentUser&&supabaseClient){const {error}=await supabaseClient.from('app_records').delete().eq('user_id',currentUser.id);if(error){alert('Não foi possível apagar na nuvem: '+error.message);return;}}const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).clear();tx.oncomplete=async()=>{await refresh();};}
-async function signOut(){if(!confirm('Deseja sair da sua conta?'))return;await supabaseClient.auth.signOut();}
+async function clearAll(){if(!confirm('ATENÇÃO: apagar permanentemente todos os pedidos, pagamentos, despesas e anexos da nuvem e deste aparelho?'))return;if(!confirm('Confirme novamente: você exportou um backup?'))return;try{const current=await allRecords();for(const item of current){if(item&&item.id!==undefined&&item.kind!=='sync_tombstone')await markRecordDeleted(item.id);}await refresh();}catch(e){alert('Não foi possível concluir a exclusão sincronizada: '+e.message);}} async function signOut(){if(!confirm('Deseja sair da sua conta?'))return;await supabaseClient.auth.signOut();}
 function capturePageDraft(key=tab){
  pageEditing[key]=editing;
  const root=document.getElementById('app');if(!root)return;
